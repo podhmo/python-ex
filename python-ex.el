@@ -291,7 +291,6 @@
         (condition-case ,err
             (progn ,@actions)
           (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
-                   (progn ,@actions)
                    (insert (prin1-to-string ,err)))
                  (display-buffer python-ex:async-error-buffer))))))))
 
