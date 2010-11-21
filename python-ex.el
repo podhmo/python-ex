@@ -125,6 +125,14 @@
 (defvar python-ex:repl-command "ipython")
 (defvar python-ex:auto-scroll-p t)
 
+;;; debug
+(setq python-ex:debug-info-p )
+(defmacro python-ex:debug-info (fmt &rest args)
+  (if python-ex:debug-info-p 
+      (python-ex:with-gensyms (str)
+        `(let* ((,str (format ,fmt ,@args))
+                (,str (mapconcat 'identity (split-string ,str "\n") "\n  ")))
+           (message (concat "[info]\n  " ,str))))))
 ;;;;
 (lexical-let ((installed nil))
   (defun python-ex:install () (interactive)
@@ -195,79 +203,127 @@
       (format "%s %s" python-ex:python-command file))
      (substring-no-properties it 0 -1))))
 
-(defmacro python-ex:with-preoutput-filter (filter &rest actions)
-  (python-ex:with-gensyms (orig preout-func)
+(defmacro python-ex:with-preoutput-filters (filters &rest actions)
+  (declare (indent 1))
+  (python-ex:with-gensyms (orig)
     `(let* ((,orig comint-preoutput-filter-functions)
-            (,preout-func ,filter)
-            (comint-preoutput-filter-functions (list ,preout-func)))
+            (comint-preoutput-filter-functions ,filters))
        (unwind-protect
            (progn ,@actions)
          (setq comint-preoutput-filter-functions ,orig)))))
-(put 'python-ex:with-preoutput-filter 'lisp-indent-function 1)
 
-(defun python-ex:eval-internal (code)
-  (lexical-let ((running t) buf (prompt ">>> "))
-    (comint-simple-send (python-ex:proc) code)
-    (python-ex:with-preoutput-filter
-     (lambda (str) (cond ((string-match prompt str)
-                          (let* ((rx (format "\n?%s" prompt))
-                                 (str (replace-regexp-in-string rx "" str)))
-                            (push str  buf))
-                          (setq buf (nreverse buf))
-                          (setq running nil) "")
-                         (t (push str buf) "")))
-     (while running ;;polling
-       (sleep-for 0 100))
-     (mapconcat 'identity  buf ""))))
+(defmacro python-ex:with-preoutput-filter (filter &rest actions)
+  (declare (indent 1))
+  `(python-ex:with-preoutput-filters (list ,filter)
+     ,@actions))
 
+(defun python-ex:eval-internal (source-code)
+  (lexical-let* ((buf (list))
+                 (source-code source-code)
+                 (done-p nil)
+                 (output-interception
+                  (lambda (str) 
+                    (python-ex:debug-info  "world==== %S" str)
+                    (cond ((not python-ex:eval-reading-p)
+                           (python-ex:let1 str (replace-regexp-in-string "\n?>>> " "" str)
+                             (push str buf))
+                           (setq buf (nreverse buf) done-p t))
+                          (t (push str buf)))
+                    "")))
+    (python-ex:eval-internal-1 
+     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
+     :filters (list output-interception))
+    (while (not done-p)
+      (python-ex:debug-info "outer-sleep")
+      (sleep-for 10))
+    (mapconcat 'identity buf "")))
+
+(defvar pythin-ex:eval-reading-p nil) ;;internal-variable for polling
+(defun* python-ex:eval-internal-1 (&key send-action filters call-back)
+  (lexical-let ((prompt-rx (format "\n?%s" ">>> ")))
+    (let* ((end-check-filter
+            (lambda (str)
+              (python-ex:debug-info "===hello %S" str)
+              (when (string-match-p prompt-rx str)
+                (setq python-ex:eval-reading-p nil))
+              str))
+           (filters* (cons end-check-filter filters)))
+      (setq python-ex:eval-reading-p t)
+      (funcall send-action)
+      (python-ex:with-preoutput-filters filters*
+        (while python-ex:eval-reading-p ;;polling
+          (python-ex:debug-info "inner-sleep")
+          (sleep-for 0 100))
+        (when call-back (funcall call-back))))))
+;; (setq python-ex:eval-reading-p nil)
+
+;;; async-eval
+(defun python-ex:eval-async (code &optional call-back) (interactive "s\na") ;;output-filterを用意しても良かったかも？
+  (case python-ex:eval-type
+    ((internal) (python-ex:eval-internal-async code call-back))
+    ((external) (python-ex:eval-external-async code call-back))
+    (otherwise (python-ex:let1 fmt "python-ex:eval -- invalid eval-type %s"
+                 (error (format fmt python-ex:eval-type))))))
+
+(defun python-ex:eval-internal-async (source-code &optional call-back)
+  (python-ex:with-async (source-code call-back)
+    (python-ex:let1 r (python-ex:eval-internal source-code)
+      (cond (call-back (funcall call-back r))
+            (t (message "pyex-result: %s" r))))))
+
+(defun python-ex:eval-external-async (source-code &optional call-back)
+  (python-ex:with-async (source-code call-back)
+    (python-ex:let1 r (python-ex:eval-external source-code)
+      (cond (call-back (funcall call-back r))
+            (t (message "pyex-result: %s" r))))))
 ;;; repl-action
-(defvar python-ex:ansync-error-buffer "*python-ex ansync error*")
+(defvar python-ex:async-error-buffer " *python-ex async error*")
 
-(defun python-ex:with-ansync (actions)
-  (run-with-idle-timer 
-   0.01 nil
-   (lambda ()
-     (condition-case e
-         (apply action args)
-       (error (with-current-buffer (get-buffer-create python-ex:ansync-error-buffer)
-                (progn ,@actions)
-                (insert (prin1-to-string e)))
-              (display-buffer python-ex:ansync-error-buffer))))))
+(defmacro python-ex:with-async (args &rest actions)
+  (declare (indent 1))
+  (python-ex:with-gensyms (err)
+  `(python-ex:with-lexical-bindings ,args
+     (run-with-idle-timer 
+      0.01 nil
+      (lambda ()
+        (condition-case ,err
+            (progn ,@actions)
+          (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
+                   (progn ,@actions)
+                   (insert (prin1-to-string ,err)))
+                 (display-buffer python-ex:async-error-buffer))))))))
 
-(defun python-ex:action-repl-buffer (action &rest args)
-  (python-ex:and-let* ((w (find python-ex:buffer (window-list) :key 'window-buffer)))
-    (with-selected-window w
-      (apply action args))))
+(defmacro python-ex:with-action-repl-buffer (&rest actions)
+  (python-ex:with-gensyms (w)
+    `(python-ex:and-let* ((,w (find python-ex:buffer (window-list) :key 'window-buffer)))
+       (with-selected-window ,w
+         ,@actions))))
 
-(defun python-ex:action-repl-buffer-async (action &rest args)
-  (python-ex:with-lexical-bindings (action args)
-    (apply 'run-with-idle-timer 0.01 nil 
-           'python-ex:action-repl-buffer
-           action args)))
+(defun python-ex:auto-scroll-callback ()
+  (python-ex:debug-info "buf:%s window:" current-buffer (selected-window))
+  (python-ex:with-action-repl-buffer
+   (goto-char (point-max))))
 
-(defun python-ex:auto-scroll-preoutput-filter (str)
-  (when (string-match ">>> " str)
-    (python-ex:action-repl-buffer-async (lambda () (goto-char (point-max)))))
-  str)
-
-(defun python-ex:send-string (code)
-    (cond (python-ex:auto-scroll-p
-           (python-ex:with-preoutput-filter  'python-ex:auto-scroll-preoutput-filter
-             (comint-simple-send (python-ex:proc) code)))
+(defun python-ex:send-string (code &optional call-back)
+  (cond (python-ex:auto-scroll-p
+         (python-ex:with-async (code call-back)
+           (python-ex:eval-internal-1
+            :send-action (lambda () (comint-simple-send (python-ex:proc) code))
+            :call-back (or call-back 'python-ex:auto-scroll-callback))))
         (t (comint-simple-send (python-ex:proc) code))))
 
-(defun python-ex:send-region (beg end) (interactive "r")
+(defun python-ex:send-region (beg end &optional call-back) (interactive "r\nP")
   (cond (python-ex:auto-scroll-p
-         (python-ex:with-preoutput-filter 'python-ex:auto-scroll-preoutput-filter
-           (comint-send-region (python-ex:proc) beg end)))
+         (python-ex:with-async (beg end call-back)
+           (python-ex:eval-internal-1
+            :send-action (lambda () (comint-send-region (python-ex:proc) beg end))
+            :call-back (or call-back 'python-ex:auto-scroll-callback))))
         (t (comint-send-region (python-ex:proc) beg end))))
 
 (defun python-ex:send-buffer () (interactive)
   (pyton-ex:send-region (point-min) (point-max)))
 
-(defun python-ex:send-defun () ;;buggy
-  "Send the current defun (class or method) to the inferior Python process."
-  (interactive)
+(defun python-ex:send-defun ()  (interactive)
   (save-excursion
     (python-ex:send-region
      (progn (beginning-of-defun) (point))
