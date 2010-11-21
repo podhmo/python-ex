@@ -1,12 +1,12 @@
 PACKAGE_DIR = "python-ex"
 require 'fileutils'
 
-desc "download_depends"
-task :download_depends do
-  sh <<SH
-git clone git@github.com:podhmo/el-util-macro.git
-SH
-end
+# desc "download_depends"
+# task :download_depends do
+#   sh <<SH
+# git clone git@github.com:podhmo/el-util-macro.git
+# SH
+# ened
 
 desc "package"
 task :package do
@@ -21,9 +21,6 @@ end
 desc "help"
 task :help do
 puts <<HELP
-## download dependency
-rake download_depends
-
 ## extract only el files
 rake package  #generate `python-ex' directory
 HELP
