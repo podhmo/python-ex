@@ -183,7 +183,7 @@
   (get-buffer-process python-ex:buffer))
 
 ;;;; eval
-(defun python-ex:eval (code) (interactive "s") ;;output-filterを用意しても良かったかも？
+(defun python-ex:eval (code) (interactive "s") 
   (case python-ex:eval-type
     ((internal) (python-ex:eval-internal code))
     ((external) (python-ex:eval-external code))
@@ -258,7 +258,7 @@
 ;; (setq python-ex:eval-reading-p nil)
 
 ;;; async-eval
-(defun python-ex:eval-async (code &optional call-back) (interactive "s\na") ;;output-filterを用意しても良かったかも？
+(defun python-ex:eval-async (code &optional call-back) (interactive "s\na")
   (case python-ex:eval-type
     ((internal) (python-ex:eval-internal-async code call-back))
     ((external) (python-ex:eval-external-async code call-back))
