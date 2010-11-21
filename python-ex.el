@@ -120,6 +120,10 @@
 (defvar python-ex:eval-type 'external) ;; 'external or 'internal
 (defvar python-ex:python-command python-command)
 (defvar python-ex:temoprary-directory "/tmp/")
+(defvar python-ex:buffer-name "*Python-ex*")
+(defvar python-ex:buffer nil)
+(defvar python-ex:repl-command "ipython")
+(defvar python-ex:auto-scroll-p t)
 
 ;;;;
 (lexical-let ((installed nil))
@@ -129,10 +133,6 @@
       (defalias 'python-proc-original 'python-proc)
       (defalias 'run-python 'python-ex:run-repl)
       (defalias 'python-proc 'python-ex:proc))))
-
-(defvar python-ex:buffer-name "*Python-ex*")
-(defvar python-ex:buffer nil)
-(defvar python-ex:repl-command "ipython")
 
 (defun python-ex:command-list (cmd &rest rest)
   (cond ((string-match-p "ipython" cmd) 
@@ -195,26 +195,72 @@
       (format "%s %s" python-ex:python-command file))
      (substring-no-properties it 0 -1))))
 
+(defmacro python-ex:with-preoutput-filter (filter &rest actions)
+  (python-ex:with-gensyms (orig preout-func)
+    `(let* ((,orig comint-preoutput-filter-functions)
+            (,preout-func ,filter)
+            (comint-preoutput-filter-functions (list ,preout-func)))
+       (unwind-protect
+           (progn ,@actions)
+         (setq comint-preoutput-filter-functions ,orig)))))
+
 (defun python-ex:eval-internal (code)
-  (declare (special comint-preoutput-filter-functions))
   (lexical-let ((running t) buf (prompt ">>> "))
-    (let* ((orig comint-preoutput-filter-functions)
-           (preout-func (lambda (str)
-                          (cond ((string-match prompt str)
-                                 (let* ((rx (format "\n?%s" prompt))
-                                        (str (replace-regexp-in-string fmt "" str)))
-                                   (push str  buf))
-                                 (setq buf (nreverse buf))
-                                 (setq running nil) "")
-                                (t (push str buf) ""))))
-           (comint-preoutput-filter-functions (list preout-func)))
-      (unwind-protect
-          (progn
-            (comint-simple-send (python-ex:proc) code)
-            (while running ;;polling
-              (sleep-for 0 100))
-            (mapconcat 'identity  buf ""))
-        (setq comint-preoutput-filter-functions orig)))))
+    (comint-simple-send (python-ex:proc) code)
+    (python-ex:with-preoutput-filter
+     (lambda (str) (cond ((string-match prompt str)
+                          (let* ((rx (format "\n?%s" prompt))
+                                 (str (replace-regexp-in-string rx "" str)))
+                            (push str  buf))
+                          (setq buf (nreverse buf))
+                          (setq running nil) "")
+                         (t (push str buf) "")))
+     (while running ;;polling
+       (sleep-for 0 100))
+     (mapconcat 'identity  buf ""))))
+
+;;; repl-action
+(defun python-ex:action-repl-buffer (action &rest args)
+  (python-ex:and-let* ((w (find python-ex:buffer (window-list) :key 'window-buffer)))
+    (with-selected-window w
+      (apply action args))))
+
+(defun python-ex:action-repl-buffer-async (fun &rest args)
+  (lexical-let ((fun fun) (args args))
+    (apply 'run-with-idle-timer 0.01 nil 
+           'python-ex:action-repl-buffer
+           fun args)))
+
+(defun python-ex:auto-scroll-preoutput-filter (str)
+  (when (string-match ">>> " str)
+    (python-ex:action-repl-buffer-async (lambda () (goto-char (point-max)))))
+  str)
+
+;;; send
+(defun python-ex:send-string (code)
+  (cond (python-ex:auto-scroll-p
+         (python-ex:with-preoutput-filter 
+          'python-ex:auto-scroll-preoutput-filter
+          (comint-simple-send (python-ex:proc) code)))
+        (t (comint-simple-send (python-ex:proc) code))))
+
+(defun python-ex:send-region (beg end) (interactive "r")
+  (cond (python-ex:auto-scroll-p
+         (python-ex:with-preoutput-filter
+          'python-ex:auto-scroll-preoutput-filter
+          (comint-send-region (python-ex:proc) beg end)))
+        (t (comint-send-region (python-ex:proc) beg end))))
+
+(defun python-ex:send-buffer () (interactive)
+  (pyton-ex:send-region (point-min) (point-max)))
+
+(defun python-ex:send-defun () ;;buggy
+  "Send the current defun (class or method) to the inferior Python process."
+  (interactive)
+  (save-excursion
+    (python-ex:send-region
+     (progn (beginning-of-defun) (point))
+     (progn (end-of-defun) (point)))))
 
 (provide 'python-ex)
   
