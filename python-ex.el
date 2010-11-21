@@ -203,6 +203,7 @@
        (unwind-protect
            (progn ,@actions)
          (setq comint-preoutput-filter-functions ,orig)))))
+(put 'python-ex:with-preoutput-filter 'lisp-indent-function 1)
 
 (defun python-ex:eval-internal (code)
   (lexical-let ((running t) buf (prompt ">>> "))
@@ -220,35 +221,45 @@
      (mapconcat 'identity  buf ""))))
 
 ;;; repl-action
+(defvar python-ex:ansync-error-buffer "*python-ex ansync error*")
+
+(defun python-ex:with-ansync (actions)
+  (run-with-idle-timer 
+   0.01 nil
+   (lambda ()
+     (condition-case e
+         (apply action args)
+       (error (with-current-buffer (get-buffer-create python-ex:ansync-error-buffer)
+                (progn ,@actions)
+                (insert (prin1-to-string e)))
+              (display-buffer python-ex:ansync-error-buffer))))))
+
 (defun python-ex:action-repl-buffer (action &rest args)
   (python-ex:and-let* ((w (find python-ex:buffer (window-list) :key 'window-buffer)))
     (with-selected-window w
       (apply action args))))
 
-(defun python-ex:action-repl-buffer-async (fun &rest args)
-  (lexical-let ((fun fun) (args args))
+(defun python-ex:action-repl-buffer-async (action &rest args)
+  (python-ex:with-lexical-bindings (action args)
     (apply 'run-with-idle-timer 0.01 nil 
            'python-ex:action-repl-buffer
-           fun args)))
+           action args)))
 
 (defun python-ex:auto-scroll-preoutput-filter (str)
   (when (string-match ">>> " str)
     (python-ex:action-repl-buffer-async (lambda () (goto-char (point-max)))))
   str)
 
-;;; send
 (defun python-ex:send-string (code)
-  (cond (python-ex:auto-scroll-p
-         (python-ex:with-preoutput-filter 
-          'python-ex:auto-scroll-preoutput-filter
-          (comint-simple-send (python-ex:proc) code)))
+    (cond (python-ex:auto-scroll-p
+           (python-ex:with-preoutput-filter  'python-ex:auto-scroll-preoutput-filter
+             (comint-simple-send (python-ex:proc) code)))
         (t (comint-simple-send (python-ex:proc) code))))
 
 (defun python-ex:send-region (beg end) (interactive "r")
   (cond (python-ex:auto-scroll-p
-         (python-ex:with-preoutput-filter
-          'python-ex:auto-scroll-preoutput-filter
-          (comint-send-region (python-ex:proc) beg end)))
+         (python-ex:with-preoutput-filter 'python-ex:auto-scroll-preoutput-filter
+           (comint-send-region (python-ex:proc) beg end)))
         (t (comint-send-region (python-ex:proc) beg end))))
 
 (defun python-ex:send-buffer () (interactive)
