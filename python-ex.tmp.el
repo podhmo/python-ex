@@ -1,3 +1,6 @@
+;; (while (re-search-forward "python-ex" nil t 1)
+;;   (compose-region (match-beginning 0) (match-end 0) ?＠))
+
 (python-ex:eval-external "print 1") ; => 1
 (python-ex:eval-external-async "print 10")
 (python-ex:eval-external-async "print 10" 'insert)
@@ -8,6 +11,7 @@
 (python-ex:run-repl t)
 (python-ex:run-repl)
 (python-ex:kill-repl)
+
 (setq python-ex:auto-scroll-p t)
 (python-ex:send-string
  "for i in range(10):

@@ -1,5 +1,7 @@
 (provide 'python-ex)
 ;;(util-macro-install "python-ex:")
+;; (while (re-search-forward "python-ex:" nil t 1)(compose-region (match-beginning 0) (match-end 0) ?＠))
+
 (defmacro python-ex:with-lexical-bindings
   (syms &rest body)
   (let ((clauses (loop for sym in syms collect (\` ((\, sym) (\, sym))))))
