@@ -1,3 +1,5 @@
+(make-variable-buffer-local 'comint-preoutput-filter-functions)
+
 ;; (while (re-search-forward "python-ex" nil t 1)
 ;;   (compose-region (match-beginning 0) (match-end 0) ?＠))
 
@@ -17,13 +19,22 @@
  "for i in range(10):
     print i,i,i" (lambda () (insert "foo")))
 
-(python-ex:eval-external-async
+(python-ex:eval-internal
  "import time
-time.sleep(3)
-print 10"
- (lambda (r) (insert r)))
-;;;
-(python-ex:all-modules-cache-buffer t t t)
+time.sleep(1)
+print 300")
+
+;; (progn 
+;;   (let1 pt 
+;;       (with-current-buffer (python-ex:buffer)
+;;         (marker-position comint-last-output-start))
+;;     (comint-simple-send (python-ex:proc) "1")
+;;     (sleep-for 0 100)
+;;     (let1 pt2 
+;;         (with-current-buffer (python-ex:buffer)
+;;           (marker-position comint-last-output-start))
+;;       (values pt pt2))))
+
 (setq python-ex:debug-info-p t)
 (setq xxxx t)
 (python-ex:wait-for 
@@ -31,14 +42,4 @@ print 10"
  (lambda () (mesage "hey!")))
 (setq xxxx nil)
                        
-;; (while python-ex:eval-reading-p ;;polling
-;;   (python-ex:debug-info "inner-sleep")
-;;   (sleep-for 0 100))
-;;(pythno-ex:wait-for 100 python-ex:eval-reading-p)
-
-(defun python-ex:wait-for (secs pred)
-  (python-ex:let1 finishied-p (if (functionp pred) (fucall pred) pred)
-    (unless finishied-p
-      (run-with-timer
-       secs nil
-       (python-ex:cut 'python-ex:wait-for secs pred)))))
+(python-ex:all-modules-cache-buffer)
