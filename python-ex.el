@@ -1,12 +1,12 @@
-(setq python-ex:debug-info-p t)
-
 (require 'cl)
 (require 'anything nil t)
 (defmacro python-ex:with-anything (&rest actions)
   `(when (fboundp 'anything)
      ,@actions))
-;;(util-macro-install "python-ex:")
 ;; (while (re-search-forward "python-ex:" nil t 1)(compose-region (match-beginning 0) (match-end 0) ?＠))
+
+;;; util macro
+;;(util-macro-install "python-ex:")
 
 (defmacro python-ex:with-lexical-bindings
   (syms &rest body)
@@ -125,6 +125,7 @@
 (put 'python-ex:aif 'lisp-indent-function 2)
 
 ;;;; setting
+(defvar python-online-document-url "http://docs.python.org")
 (defvar python-ex:eval-type 'external) ;; 'external or 'internal
 (defvar python-ex:python-command python-command)
 (defvar python-ex:temoprary-directory "/tmp/")
@@ -136,7 +137,7 @@
              python-ex:buffer)))
 
 (defvar python-ex:repl-command "ipython")
-(defvar python-ex:auto-scroll-p t)
+(defvar python-ex:auto-scroll-p nil)
 
 ;;; debug
 (defvar python-ex:debug-info-p nil)
@@ -146,7 +147,7 @@
         `(let* ((,str (format ,fmt ,@args))
                 (,str (mapconcat 'identity (split-string ,str "\n") "\n  ")))
            (message (concat "[info]\n  " ,str))))))
-;;;;
+;;;; repl (interactive shell)
 (lexical-let ((installed nil))
   (defun python-ex:install () (interactive)
     (unless installed
@@ -182,6 +183,16 @@
         (when (string-match-p "ipython" cmd)
           (require 'ansi-color)
           (ansi-color-for-comint-mode-on))
+        (comint-simple-send 
+         (get-buffer-process buf)
+         (format
+          "
+import sys
+sys.path.append(%S)
+import ex
+"
+          ;;data-directory)) ;; for-using emacs.py
+          default-directory)) ;; for selfish python extension
         (setq python-ex:buffer (current-buffer))
         ;; (accept-process-output (get-buffer-process (python-ex:buffer)) 0 500)
         (inferior-python-mode))))
@@ -195,7 +206,7 @@
     (python-ex:run-repl t))
   (get-buffer-process python-ex:buffer))
 
-;;;; eval
+;;;; eval syncronized
 (defun python-ex:eval (code) (interactive "s") 
   (case python-ex:eval-type
     ((internal) (python-ex:eval-internal code))
@@ -225,11 +236,6 @@
            (progn ,@actions)
          (setq comint-preoutput-filter-functions ,orig)))))
 
-;; (defmacro python-ex:with-preoutput-filter (filter &rest actions)
-;;   (declare (indent 1))
-;;   `(python-ex:with-preoutput-filters (list ,filter)
-;;      ,@actions))
-
 (defun python-ex:eval-internal (source-code)
   (lexical-let* ((buf (list))
                  (done-p nil)
@@ -251,7 +257,7 @@
     (mapconcat 'identity buf "")))
 
 (defvar python-ex:eval-reading-p nil) ;;internal-variable for polling
-(defun* python-ex:eval-internal-1 (&key send-action filters)
+(defun* python-ex:eval-internal-1 (&key send-action filters call-back)
   (lexical-let ((prompt-rx (format "\n?%s" ">>> ")))
     (let* ((end-check-filter
             (lambda (str)
@@ -268,62 +274,9 @@
           (sleep-for 0 100))
         (when call-back (funcall call-back))))))
 
-;;; async-eval
-(defun python-ex:eval-async (code &optional call-back) (interactive "s\na")
-  (case python-ex:eval-type
-    ((internal) (python-ex:eval-internal-async code call-back))
-    ((external) (python-ex:eval-external-async code call-back))
-    (otherwise (python-ex:let1 fmt "python-ex:eval -- invalid eval-type %s"
-                 (error (format fmt python-ex:eval-type))))))
+;;; eval ansync
 
-(defun python-ex:eval-internal-async (source-code &optional call-back)
-  (lexical-let* ((prev-pt (with-current-buffer (python-ex:buffer)
-                            (marker-position comint-last-output-start))))
-    (comint-simple-send (python-ex:proc) source-code)
-    (python-ex:with-lexical-bindings (call-back)
-      (lexical-let ((last-call-back
-                     (lambda ()
-                       (python-ex:let1 r
-                           (with-current-buffer (python-ex:buffer)
-                             (save-excursion
-                               (goto-char (marker-position comint-last-output-start))
-                               (buffer-substring-no-properties
-                                (point) 
-                                (next-single-char-property-change (point) 'field))))
-                         (if call-back (funcall call-back r) (message "pyex-result: %s" r))))))
-        (python-ex:wait-for
-         1 (lambda ()
-             (with-current-buffer (python-ex:buffer)
-               (python-ex:debug-info
-                "python-ex:eval-internal-async --- ps(%d,%d)"
-                prev-pt (marker-position comint-last-output-start))
-               (python-ex:debug-info
-                "python-ex:eval-internal-async --- s:%s"
-                (buffer-substring-no-properties
-                 (marker-position comint-last-output-start)
-                 (point-max)))
-               (python-ex:let1 pt (marker-position comint-last-output-start)
-                 (and (< prev-pt pt)
-                      (not (string-equal "" (buffer-substring-no-properties pt (point-max))))))))
-         last-call-back)))))
-
-(defun python-ex:eval-external-async (source-code &optional call-back)
-  (let ((tmpbuf " *python-ex:sentinel*")
-        (file (python-ex:gensym-filename)))
-    (with-current-buffer (get-buffer-create tmpbuf)
-      (erase-buffer))
-    (with-temp-file file
-      (insert source-code))
-    (python-ex:with-lexical-bindings (call-back tmpbuf)
-      (set-process-sentinel
-       (start-process-shell-command 
-        "python-ex:external" tmpbuf python-ex:python-command file)
-       (lambda (status &rest args)
-         (python-ex:let1 r (with-current-buffer tmpbuf (buffer-string))
-           (cond (call-back (funcall call-back r))
-                 (t (message "pyex-result: %s" r)))))))))
-
-;;; repl-action
+;; async utility
 (defvar python-ex:async-error-buffer " *python-ex async error*")
 
 (defmacro python-ex:with-async (args &rest actions)
@@ -348,31 +301,91 @@
              (python-ex:debug-info "python-ex:wait-for -- in wait-for loop")
              (python-ex:wait-for dsecs finish-check wait-call-back)))))
 
+;; async main
+(defun python-ex:eval-async (code &optional call-back) (interactive "s\na")
+  (case python-ex:eval-type
+    ((internal) (python-ex:eval-internal-async code call-back))
+    ((external) (python-ex:eval-external-async code call-back))
+    (otherwise (python-ex:let1 fmt "python-ex:eval -- invalid eval-type %s"
+                 (error (format fmt python-ex:eval-type))))))
+
+(defun python-ex:eval-external-async (source-code &optional call-back)
+  (let ((tmpbuf " *python-ex:sentinel*")
+        (file (python-ex:gensym-filename)))
+    (with-current-buffer (get-buffer-create tmpbuf)
+      (erase-buffer))
+    (with-temp-file file
+      (insert source-code))
+    (python-ex:with-lexical-bindings (call-back tmpbuf)
+      (set-process-sentinel
+       (start-process-shell-command 
+        "python-ex:external" tmpbuf python-ex:python-command file)
+       (lambda (status &rest args)
+         (python-ex:let1 r (with-current-buffer tmpbuf (buffer-string))
+           (cond (call-back (funcall call-back r))
+                 (t (message "pyex-result: %s" r)))))))))
+
+(defun python-ex:eval-internal-async (source-code &optional call-back)
+  (python-ex:with-lexical-bindings (source-code)
+    (python-ex:eval-internal-async-1
+     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
+     :call-back call-back)))
+
+(defun* python-ex:eval-internal-async-1 (&key send-action call-back)
+  (lexical-let* ((prev-pt (with-current-buffer (python-ex:buffer)
+                            (marker-position comint-last-output-start))))
+    (funcall send-action)
+    (python-ex:with-lexical-bindings (call-back)
+      (lexical-let ((last-call-back
+                     (lambda ()
+                       (python-ex:let1 r
+                           (with-current-buffer (python-ex:buffer)
+                             (save-excursion
+                               (goto-char (marker-position comint-last-output-start))
+                               (buffer-substring-no-properties
+                                (point) 
+                                (next-single-char-property-change (point) 'field))))
+                         (if call-back (funcall call-back r) (message "pyex-result: %s" r))))))
+        (python-ex:wait-for
+         0.1 (lambda ()
+               (with-current-buffer (python-ex:buffer)
+                 (python-ex:debug-info
+                  "python-ex:eval-internal-async --- ps(%d,%d)"
+                  prev-pt (marker-position comint-last-output-start))
+                 (python-ex:debug-info
+                  "python-ex:eval-internal-async --- s:%s"
+                  (buffer-substring-no-properties
+                   (marker-position comint-last-output-start)
+                   (point-max)))
+                 (python-ex:let1 pt (marker-position comint-last-output-start)
+                   (and (< prev-pt pt)
+                        (not (string-equal "" (buffer-substring-no-properties pt (point-max))))))))
+         last-call-back)))))
+
+;;; repl-action
 (defmacro python-ex:with-action-repl-buffer (&rest actions)
   (python-ex:with-gensyms (w)
     `(python-ex:and-let* ((,w (find (python-ex:buffer) (window-list) :key 'window-buffer)))
        (with-selected-window ,w
          ,@actions))))
 
-(defun python-ex:auto-scroll-callback ()
-  (python-ex:debug-info "buf:%s window:" current-buffer (selected-window))
+(defun python-ex:auto-scroll-callback (&rest ignore)
+  (python-ex:debug-info "buf:%s window:" (current-buffer) (selected-window))
   (python-ex:with-action-repl-buffer
    (goto-char (point-max))))
 
 (defun python-ex:send-string (code &optional call-back)
-  (cond (python-ex:auto-scroll-p
-         (python-ex:with-async (code call-back)
-                               (python-ex:eval-internal-1
-                                :send-action (lambda () (comint-simple-send (python-ex:proc) code))
-                                :call-back (or call-back 'python-ex:auto-scroll-callback))))
+  (cond (python-ex:auto-scroll-p 
+         (python-ex:eval-internal-async 
+          code 
+          (or call-back 'python-ex:auto-scroll-callback)))
         (t (comint-simple-send (python-ex:proc) code))))
 
 (defun python-ex:send-region (beg end &optional call-back) (interactive "r\nP")
   (cond (python-ex:auto-scroll-p
-         (python-ex:with-async (beg end call-back)
-                               (python-ex:eval-internal-1
-                                :send-action (lambda () (comint-send-region (python-ex:proc) beg end))
-                                :call-back (or call-back 'python-ex:auto-scroll-callback))))
+         (python-ex:eval-internal-async-1
+          :send-action :send-action (lambda () (comint-send-region (python-ex:proc) beg end))
+          :call-back (or call-back 'python-ex:auto-scroll-callback)))
         (t (comint-send-region (python-ex:proc) beg end))))
 
 (defun python-ex:send-buffer () (interactive)
@@ -384,15 +397,21 @@
      (progn (beginning-of-defun) (point))
      (progn (end-of-defun) (point)))))
 
-;;;; import
-(python-ex:with-anything
- (defvar python-ex:all-modules-cache-buffer nil)
+(defun python-ex:load-file (file) (interactive "ffile:")
+  (let ((module (replace-regexp-in-string "\\..+$" "" (file-name-nondirectory file)))
+        (dir (python-ex:aif (file-name-directory file) it default-directory)))
+    (python-ex:send-string 
+     (format "%s = ex.load(%S,%S)" module module dir))
+    (message "python-ex: --- %s is loaded." file)))
 
- (defun python-ex:all-modules-cache-buffer (&optional force-reloadp asyncp showp)
-   (when force-reloadp
-     (setq python-ex:all-modules-cache-buffer nil))
-   (or python-ex:all-modules-cache-buffer
-       (python-ex:let1 code "
+;;;; import
+(defvar python-ex:all-modules-cache-buffer nil)
+
+(defun python-ex:all-modules-cache-buffer (&optional force-reloadp asyncp showp)
+  (when force-reloadp
+    (setq python-ex:all-modules-cache-buffer nil))
+  (or python-ex:all-modules-cache-buffer
+      (python-ex:let1 code "
 import pydoc
 import sys
 from os.path import dirname
@@ -410,38 +429,70 @@ def all_modules(is_subpath_enable=True):
 for i in  all_modules():
     print i
 "
-         (python-ex:with-lexical-bindings (showp)
-           (lexical-let ((insert-result-to-buffer
+        (python-ex:with-lexical-bindings (showp)
+          (lexical-let* ((buf (get-buffer-create " *python modules*"))
+                         (insert-result-to-buffer
                           (lambda (r) 
-                            (python-ex:let1 buf (get-buffer-create " *python modules*")
-                              (with-current-buffer buf
-                                (erase-buffer)
-                                (insert r))
-                              (message "python-ex:all-modules-cache-buffer --- ... done")
-                              (when showp (display-buffer " *python modules*"))
-                              (setq python-ex:all-modules-cache-buffer buf)))))
-             (message "python-ex:all-modules-cache-buffer --- collecting python modules ...")
-             (cond (asyncp (python-ex:eval-external-async code insert-result-to-buffer))
-                   (t (funcall insert-result-to-buffer (python-ex:eval-external code))))))))))
+                            (with-current-buffer buf
+                              (erase-buffer)
+                              (insert r))
+                            (message "python-ex:all-modules-cache-buffer --- ... done")
+                            (when showp (display-buffer " *python modules*")))))
+            (message "python-ex:all-modules-cache-buffer --- collecting python modules ...")
+            (cond (asyncp (python-ex:eval-external-async code insert-result-to-buffer))
+                  (t (funcall insert-result-to-buffer (python-ex:eval-external code))))
+            (setq python-ex:all-modules-cache-buffer buf))))))
 
-;;          (help 
-;;           (lambda (c)
-;;             (python-ex:message-with-other-buffer
-;;              (lambda ()
-;;                (python-ex:eval
-;;                 (format "
-;; import %s
-;; help('%s')" 
-;;                         c c)))))))
-;;      (let ((source
-;;             `((name . "import")
-;;               (init . (lambda ()
-;;                         (with-current-buffer (anything-candidate-buffer 'global)
-;;                           (insert (python-ex:eval ,code)))))
-;;               (candidates-in-buffer)
-;;               (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
-;;                          ("help" . ,help)))
-;;               (persistent-action . ,help))))
-;;        (anything-other-buffer (list source) " *python import*"))))
+(defun* python-ex:message-with-other-buffer (proc &optional (name "*Py Help*"))
+  (python-ex:let1 buf (generate-new-buffer name)
+    (with-current-buffer buf
+      (python-ex:let1 inhibit-read-only nil
+        (insert (funcall proc)))
+      (goto-char (point-min)))
+    (display-buffer buf)))
 
+;;; anything interface
+(python-ex:with-anything
+
+ (defun python-ex-anything:help (c)
+   (python-ex:message-with-other-buffer
+    (lambda ()
+      (python-ex:eval-internal
+       (format "
+import %s
+help('%s')" 
+               c c)))))
+
+ (defun python-ex-anything:web-help (c)
+   (browse-url
+    (format "%s/library/%s.html" python-online-document-url c)))
+
+ (defvar python-ex:anything-c-source-all-modules
+   '((name . "import")
+     (init . (lambda ()
+               (anything-candidate-buffer 
+                (python-ex:all-modules-cache-buffer nil t))))
+     (candidates-in-buffer)
+     (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
+                ("help" . python-ex-anything:help)
+                ("web-help" . python-ex-anything:web-help)))
+     (persistent-action . ,python-ex-anything:help)))
+
+ (defvar python-ex:anything-daily-use-modules-file 
+   (concat default-directory "daily-modules.py"))
+
+ (defvar python-ex:anything-c-source-daily-use-modules
+   '((name . "daily modules")
+     (candidates-file . python-ex:anything-daily-use-modules-file)
+     (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
+                ("help" . python-ex-anything:help)
+                ("web-help" . python-ex-anything:web-help)))
+     (persistent-action . ,python-ex-anything:help)))
+
+ (defun python-ex:all-modules-with-anything () (interactive)
+   (python-ex:let1 sources
+       '(python-ex:anything-c-source-daily-use-modules
+         python-ex:anything-c-source-all-modules)
+     (anything-other-buffer sources " *python import*")))
+ )
 (provide 'python-ex)

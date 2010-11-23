@@ -19,21 +19,13 @@
  "for i in range(10):
     print i,i,i" (lambda () (insert "foo")))
 
-(python-ex:eval-internal
- "import time
-time.sleep(1)
-print 300")
+(let ((python-ex:auto-scroll-p t))
+  (python-ex:send-string
+   "import time
+print 123
+time.sleep(2)
+print 321"))
 
-;; (progn 
-;;   (let1 pt 
-;;       (with-current-buffer (python-ex:buffer)
-;;         (marker-position comint-last-output-start))
-;;     (comint-simple-send (python-ex:proc) "1")
-;;     (sleep-for 0 100)
-;;     (let1 pt2 
-;;         (with-current-buffer (python-ex:buffer)
-;;           (marker-position comint-last-output-start))
-;;       (values pt pt2))))
 
 (setq python-ex:debug-info-p t)
 (setq xxxx t)
@@ -41,5 +33,6 @@ print 300")
  0.5 (lambda () (null xxxx))
  (lambda () (mesage "hey!")))
 (setq xxxx nil)
-                       
-(python-ex:all-modules-cache-buffer)
+(python-ex:run-repl)
+(python-ex:load-file "a.py")
+(python-ex:all-modules-cache-buffer t t t)
