@@ -131,6 +131,7 @@
 (defvar python-ex:temoprary-directory "/tmp/")
 (defvar python-ex:buffer-name "*Python-ex*")
 (defvar python-ex:buffer nil)
+(defvar python-ex:prompt-rx "\n+\\[0;32mIn \\[\\[1;32m[0-9]+\\[0;32m\\]: \\[0m") ;; ">>> " classic
 (defun python-ex:buffer ()
   (or python-ex:buffer
       (progn (python-ex:proc)
@@ -147,6 +148,15 @@
         `(let* ((,str (format ,fmt ,@args))
                 (,str (mapconcat 'identity (split-string ,str "\n") "\n  ")))
            (message (concat "[info]\n  " ,str))))))
+
+(defun python-ex:debug-info-enable (k) (interactive "p")
+  (python-ex:let1 val (case k
+                        ((1) t)
+                        ((-1) nil)
+                        (otherwise (not python-ex:debug-info-p)))
+    (message "python-ex:debug-info-p is `%s`" val)
+    (setq python-ex:debug-info-p val)))
+
 ;;;; repl (interactive shell)
 (lexical-let ((installed nil))
   (defun python-ex:install () (interactive)
@@ -158,19 +168,23 @@
 
 (defun python-ex:command-list (cmd &rest rest)
   (cond ((string-match-p "ipython" cmd) 
-         `(,cmd "-cl" "-noreadline" "-nobanner" ,@rest))
+         `(,cmd ,@rest))
+        ;; `(,cmd "-cl" "-noreadline" "-nobanner" ,@rest))
         (t (list cmd))))
 
-(defun python-ex:kill-repl () (interactive)
+(defun python-ex:kill-repl (&optional erase-buffer-p) (interactive "P")
   (when (comint-check-proc (python-ex:buffer))
     (python-ex:let1 process (python-ex:proc)
       (set-process-filter process nil)
-      (delete-process process))))
+      (delete-process process))
+    (when erase-buffer-p
+      (with-current-buffer (python-ex:buffer)
+        (erase-buffer)))))
 
 (defun python-ex:run-repl (&optional noshow cmd)
   (interactive (if current-prefix-arg
-                   (list (read-string "Run Python: " python-ex:repl-command) nil t)
-                   (list python-ex:repl-command)))
+                   (list nil (read-string "Run Python: " python-ex:repl-command))
+                   (list nil python-ex:repl-command)))
   (unless cmd (setq cmd python-ex:repl-command))
   ;;  (python-ex:check-version cmd) not implemented
   (setq python-ex:repl-command cmd) ;; danger
@@ -184,15 +198,7 @@
           (require 'ansi-color)
           (ansi-color-for-comint-mode-on))
         (comint-simple-send 
-         (get-buffer-process buf)
-         (format
-          "
-import sys
-sys.path.append(%S)
-import ex
-"
-          ;;data-directory)) ;; for-using emacs.py
-          default-directory)) ;; for selfish python extension
+         (get-buffer-process buf) (python-ex:format/ex-module "")) ;;
         (setq python-ex:buffer (current-buffer))
         ;; (accept-process-output (get-buffer-process (python-ex:buffer)) 0 500)
         (inferior-python-mode))))
@@ -214,12 +220,12 @@ import ex
     (otherwise (python-ex:let1 fmt "python-ex:eval -- invalid eval-type %s"
                  (error (format fmt python-ex:eval-type))))))
 
-(defun python-ex:gensym-filename ()
+(defun python-ex:gensym-name ()
   (concat python-ex:temoprary-directory 
           "pyex" (symbol-name (gensym))))
 
 (defun python-ex:eval-external (code)
-  (python-ex:let1 file (python-ex:gensym-filename)
+  (python-ex:let1 file (python-ex:gensym-name)
     (with-temp-file file
       (insert code))
     (python-ex:aand
@@ -243,13 +249,15 @@ import ex
                   (lambda (str) 
                     (python-ex:debug-info  "world==== %S" str)
                     (cond ((null python-ex:eval-reading-p)
-                           (python-ex:let1 str (replace-regexp-in-string "\n?>>> " "" str)
+                           (python-ex:let1 str (replace-regexp-in-string 
+                                                python-ex:prompt-rx "" str)
                              (push str buf))
                            (setq buf (nreverse buf) done-p t))
                           (t (push str buf)))
                     "")))
     (python-ex:eval-internal-1 
-     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
+     :send-action (lambda () (comint-simple-send (python-ex:proc) 
+                                                 (replace-regexp-in-string "\n" "\\\\n"  source-code)))
      :filters (list output-interception))
     (while (null done-p)
       (python-ex:debug-info "python-ex:eval-internal --  outer-sleep")
@@ -258,21 +266,20 @@ import ex
 
 (defvar python-ex:eval-reading-p nil) ;;internal-variable for polling
 (defun* python-ex:eval-internal-1 (&key send-action filters call-back)
-  (lexical-let ((prompt-rx (format "\n?%s" ">>> ")))
-    (let* ((end-check-filter
-            (lambda (str)
-              (python-ex:debug-info "===hello %S" str)
-              (when (string-match-p prompt-rx str)
-                (setq python-ex:eval-reading-p nil))
-              str))
-           (filters* (cons end-check-filter filters)))
-      (python-ex:with-preoutput-filters filters*
-        (setq python-ex:eval-reading-p t)
-        (funcall send-action)
-        (while python-ex:eval-reading-p ;;polling
-          (python-ex:debug-info "python-ex:eval-internal-1 -- inner-sleep")
-          (sleep-for 0 100))
-        (when call-back (funcall call-back))))))
+  (let* ((end-check-filter
+          (lambda (str)
+            (python-ex:debug-info "===hello %S" str)
+            (when (string-match-p python-ex:prompt-rx str)
+              (setq python-ex:eval-reading-p nil))
+            str))
+         (filters* (cons end-check-filter filters)))
+    (python-ex:with-preoutput-filters filters*
+      (setq python-ex:eval-reading-p t)
+      (funcall send-action)
+      (while python-ex:eval-reading-p ;;polling
+        (python-ex:debug-info "python-ex:eval-internal-1 -- inner-sleep")
+        (sleep-for 0 100))
+      (when call-back (funcall call-back)))))
 
 ;;; eval ansync
 
@@ -310,18 +317,18 @@ import ex
                  (error (format fmt python-ex:eval-type))))))
 
 (defun python-ex:eval-external-async (source-code &optional call-back)
-  (let ((tmpbuf " *python-ex:sentinel*")
-        (file (python-ex:gensym-filename)))
-    (with-current-buffer (get-buffer-create tmpbuf)
-      (erase-buffer))
-    (with-temp-file file
+  (let ((tmpbuf (python-ex:gensym-name))
+        (file (python-ex:gensym-name)))
+    (with-temp-file file 
       (insert source-code))
     (python-ex:with-lexical-bindings (call-back tmpbuf)
       (set-process-sentinel
        (start-process-shell-command 
         "python-ex:external" tmpbuf python-ex:python-command file)
        (lambda (status &rest args)
-         (python-ex:let1 r (with-current-buffer tmpbuf (buffer-string))
+         (python-ex:let1 r (with-current-buffer
+                               tmpbuf (buffer-string))
+           (kill-buffer tmpbuf)
            (cond (call-back (funcall call-back r))
                  (t (message "pyex-result: %s" r)))))))))
 
@@ -389,7 +396,7 @@ import ex
         (t (comint-send-region (python-ex:proc) beg end))))
 
 (defun python-ex:send-buffer () (interactive)
-  (pyton-ex:send-region (point-min) (point-max)))
+  (python-ex:send-region (point-min) (point-max)))
 
 (defun python-ex:send-defun ()  (interactive)
   (save-excursion
@@ -400,6 +407,9 @@ import ex
 (defun python-ex:load-file (file) (interactive "ffile:")
   (let ((module (replace-regexp-in-string "\\..+$" "" (file-name-nondirectory file)))
         (dir (python-ex:aif (file-name-directory file) it default-directory)))
+    (python-ex:debug-info 
+     "python-ex:load-file --- %s"
+     (format "%s = ex.load(%S,%S)" module module dir))
     (python-ex:send-string 
      (format "%s = ex.load(%S,%S)" module module dir))
     (message "python-ex: --- %s is loaded." file)))
@@ -407,28 +417,21 @@ import ex
 ;;;; import
 (defvar python-ex:all-modules-cache-buffer nil)
 
+(defun python-ex:format/ex-module (fmt &rest args)
+  (let* ((dir (or (python-ex:aand (buffer-file-name) (file-name-directory it))
+                  default-directory))
+         (prepare-string (format "
+import sys
+sys.path.append(%S)
+import ex"
+                                 dir)))
+    (concat prepare-string "\n" (apply 'format fmt args))))
+
 (defun python-ex:all-modules-cache-buffer (&optional force-reloadp asyncp showp)
   (when force-reloadp
     (setq python-ex:all-modules-cache-buffer nil))
   (or python-ex:all-modules-cache-buffer
-      (python-ex:let1 code "
-import pydoc
-import sys
-from os.path import dirname
-
-sys.path.remove(dirname(sys.argv[0]))
-
-def all_modules(is_subpath_enable=True):
-    r = []
-    def callback(path, modname, desc):
-        if  is_subpath_enable or modname.find(\".\") < 0:
-            r.append(modname)
-    pydoc.ModuleScanner().run(callback)
-    return sorted(r)
-
-for i in  all_modules():
-    print i
-"
+      (python-ex:let1 code (python-ex:format/ex-module "ex.print_all_modules()")
         (python-ex:with-lexical-bindings (showp)
           (lexical-let* ((buf (get-buffer-create " *python modules*"))
                          (insert-result-to-buffer
@@ -442,6 +445,7 @@ for i in  all_modules():
             (cond (asyncp (python-ex:eval-external-async code insert-result-to-buffer))
                   (t (funcall insert-result-to-buffer (python-ex:eval-external code))))
             (setq python-ex:all-modules-cache-buffer buf))))))
+
 
 (defun* python-ex:message-with-other-buffer (proc &optional (name "*Py Help*"))
   (python-ex:let1 buf (generate-new-buffer name)
@@ -479,7 +483,7 @@ help('%s')"
      (persistent-action . ,python-ex-anything:help)))
 
  (defvar python-ex:anything-daily-use-modules-file 
-   (concat default-directory "daily-modules.py"))
+   (concat (file-name-directory (buffer-file-name)) "daily-modules.py"))
 
  (defvar python-ex:anything-c-source-daily-use-modules
    '((name . "daily modules")
@@ -489,7 +493,7 @@ help('%s')"
                 ("web-help" . python-ex-anything:web-help)))
      (persistent-action . ,python-ex-anything:help)))
 
- (defun python-ex:all-modules-with-anything () (interactive)
+ (defun python-ex:select-modules-with-anything () (interactive)
    (python-ex:let1 sources
        '(python-ex:anything-c-source-daily-use-modules
          python-ex:anything-c-source-all-modules)

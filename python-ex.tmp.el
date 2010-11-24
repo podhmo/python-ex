@@ -7,6 +7,8 @@
 (python-ex:eval-external-async "print 10")
 (python-ex:eval-external-async "print 10" 'insert)
 (python-ex:eval-internal "print 10") ; => 10
+(python-ex:eval-internal "print '10\n10'") ; => 10
+;; 10
 (python-ex:eval-internal-async "print 10")
 (python-ex:eval-internal-async "print 10" 'insert)
 (python-ex:eval "print [1]") ; => [1]
@@ -36,3 +38,7 @@ print 321"))
 (python-ex:run-repl)
 (python-ex:load-file "a.py")
 (python-ex:all-modules-cache-buffer t t t)
+
+;;(string-match "\\[0-9\\]" "9")
+;;(string-match python-ex:prompt-rx (car xxxx))
+
