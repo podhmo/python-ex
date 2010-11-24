@@ -461,19 +461,19 @@ import ex"
 (defun python-ex:loaded-modules () (interactive) 
   ;;async-internal is not support, so using sync version
   (lexical-let ((loaded-modules (python-ex:eval-internal
-   "
+                                 "
 import types
 for k, e in vars().items():
     if isinstance(e, types.ModuleType):
         print \"%15s : %s\" % (k, e)
 "
-)))
+                                 )))
     (python-ex:message-with-other-buffer
      (lambda () 
        (insert loaded-modules)
        (ansi-color-apply-on-region (point-min) (point-max)))
      "*pyex:loaded-modules*" t)))
-    
+
 
 ;;; anything interface
 (python-ex:with-anything
@@ -487,7 +487,7 @@ for k, e in vars().items():
 import %s
 help('%s')" 
                 c c))))))
-   
+ 
  (defun python-ex-anything:web-help (c)
    (browse-url
     (format "%s/library/%s.html" python-online-document-url c)))
@@ -519,5 +519,27 @@ help('%s')"
        '(python-ex:anything-c-source-daily-use-modules
          python-ex:anything-c-source-all-modules)
      (anything-other-buffer sources " *python import*")))
- )
+
+ (defvar python-ex:anything-c-source-input-histories
+   '((name . "input history")
+     (init 
+      . (lambda ()
+          (python-ex:let1 histories-array
+              (with-current-buffer (python-ex:buffer)
+                (delete-duplicates (cddr comint-input-ring)
+                                   :test 'string-equal))
+            (with-current-buffer (anything-candidate-buffer 'global)
+              (erase-buffer)
+              (dotimes (i (length histories-array))
+                (python-ex:aand
+                 (aref histories-array i)
+                 (insert it "\n")))))))
+     (candidates-in-buffer)
+     (search-from-end)
+     (action . python-ex:send-string)))
+
+ (defun python-ex:input-histories-with-anything () (interactive)
+     (anything '(python-ex:anything-c-source-input-histories)))
+)
+
 (provide 'python-ex)
