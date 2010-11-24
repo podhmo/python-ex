@@ -1,5 +1,6 @@
 (require 'cl)
 (require 'anything nil t)
+(require 'python)
 (defmacro python-ex:with-anything (&rest actions)
   `(when (fboundp 'anything)
      ,@actions))
