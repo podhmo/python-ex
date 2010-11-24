@@ -256,8 +256,7 @@
                           (t (push str buf)))
                     "")))
     (python-ex:eval-internal-1 
-     :send-action (lambda () (comint-simple-send (python-ex:proc) 
-                                                 (replace-regexp-in-string "\n" "\\\\n"  source-code)))
+     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
      :filters (list output-interception))
     (while (null done-p)
       (python-ex:debug-info "python-ex:eval-internal --  outer-sleep")
@@ -447,13 +446,34 @@ import ex"
             (setq python-ex:all-modules-cache-buffer buf))))))
 
 
-(defun* python-ex:message-with-other-buffer (proc &optional (name "*Py Help*"))
-  (python-ex:let1 buf (generate-new-buffer name)
+(defun* python-ex:message-with-other-buffer (proc &optional (name "*Py Help*") (reuse-buffer-p nil))
+  (python-ex:let1 buf
+      (cond (reuse-buffer-p (get-buffer-create name))
+            (t (generate-new-buffer name)))
     (with-current-buffer buf
       (python-ex:let1 inhibit-read-only nil
-        (insert (funcall proc)))
+        (when reuse-buffer-p
+          (erase-buffer))
+        (funcall proc))
       (goto-char (point-min)))
     (display-buffer buf)))
+
+(defun python-ex:loaded-modules () (interactive) 
+  ;;async-internal is not support, so using sync version
+  (lexical-let ((loaded-modules (python-ex:eval-internal
+   "
+import types
+for k, e in vars().items():
+    if isinstance(e, types.ModuleType):
+        print \"%15s : %s\" % (k, e)
+"
+)))
+    (python-ex:message-with-other-buffer
+     (lambda () 
+       (insert loaded-modules)
+       (ansi-color-apply-on-region (point-min) (point-max)))
+     "*pyex:loaded-modules*" t)))
+    
 
 ;;; anything interface
 (python-ex:with-anything
@@ -461,12 +481,13 @@ import ex"
  (defun python-ex-anything:help (c)
    (python-ex:message-with-other-buffer
     (lambda ()
-      (python-ex:eval-internal
-       (format "
+      (insert
+       (python-ex:eval-internal
+        (format "
 import %s
 help('%s')" 
-               c c)))))
-
+                c c))))))
+   
  (defun python-ex-anything:web-help (c)
    (browse-url
     (format "%s/library/%s.html" python-online-document-url c)))
