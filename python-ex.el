@@ -323,10 +323,9 @@
                    (funcall send-action)
                    (while python-ex:eval-reading-p ;;polling
                      (python-ex:debug-info "python-ex:eval-internal-1 -- inner-sleep")
-                     (sleep-for 0 100)
-                     (when call-back (funcall call-back))))
+                     (sleep-for 0 100))
+                   (when call-back (funcall call-back)))
                (setq comint-preoutput-filter-functions old-filters)))))))
-
 ;; async main
 (defun python-ex:eval-async (code &optional call-back) (interactive "s\na")
   (case python-ex:eval-type
