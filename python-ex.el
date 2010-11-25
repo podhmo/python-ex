@@ -132,6 +132,7 @@
 (defvar python-ex:temoprary-directory "/tmp/")
 (defvar python-ex:buffer-name "*Python-ex*")
 (defvar python-ex:buffer nil)
+(defvar python-ex:base-dir default-directory)
 (defvar python-ex:prompt-rx "\n+\\[0;32mIn \\[\\[1;32m[0-9]+\\[0;32m\\]: \\[0m") ;; ">>> " classic
 (defun python-ex:buffer ()
   (or python-ex:buffer
@@ -259,10 +260,16 @@
       (format "%s %s" python-ex:python-command file))
      (substring-no-properties it 0 -1))))
 
-(defun python-ex:eval-internal (source-code &optional async call-back)
+(defun python-ex:eval-internal (code-or-send-action &optional async call-back filters)
   (lexical-let* ((buf (list))
                  (done-p nil)
                  (call-back call-back)
+                 (code-or-send-action code-or-send-action)
+                 (send-action (cond ((functionp code-or-send-action)
+                                     code-or-send-action)
+                                    (t (lambda ()
+                                         (comint-simple-send
+                                          (python-ex:proc) code-or-send-action)))))
                  (output-interception
                   (lambda (str) 
                     (python-ex:debug-info  "world==== %S" str)
@@ -274,8 +281,8 @@
                           (t (push str buf)))
                     "")))
     (python-ex:eval-internal-1 
-     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
-     :filters (list output-interception)
+     :send-action send-action
+     :filters (cons output-interception filters)
      :async async
      :call-back (lambda ()
                   (while (null done-p)
@@ -432,13 +439,11 @@
 (defvar python-ex:all-modules-cache-buffer nil)
 
 (defun python-ex:format/ex-module (fmt &rest args)
-  (let* ((dir (or (python-ex:aand (buffer-file-name) (file-name-directory it))
-                  default-directory))
-         (prepare-string (format "
+  (let ((prepare-string (format "
 import sys
 sys.path.append(%S)
 import ex"
-                                 dir)))
+                                python-ex:base-dir)))
     (concat prepare-string "\n" (apply 'format fmt args))))
 
 (defun python-ex:all-modules-cache-buffer (&optional force-reloadp asyncp showp)
@@ -513,18 +518,18 @@ help('%s')"
                (anything-candidate-buffer 
                 (python-ex:all-modules-cache-buffer nil t))))
      (candidates-in-buffer)
-     (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
+     (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
                 ("help" . python-ex-anything:help)
                 ("web-help" . python-ex-anything:web-help)))
      (persistent-action . ,python-ex-anything:help)))
 
  (defvar python-ex:anything-daily-use-modules-file 
-   (concat (file-name-directory (buffer-file-name)) "daily-modules.py"))
+   (concat python-ex:base-dir "daily-modules.py"))
 
  (defvar python-ex:anything-c-source-daily-use-modules
    '((name . "daily modules")
      (candidates-file . python-ex:anything-daily-use-modules-file)
-     (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
+     (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
                 ("help" . python-ex-anything:help)
                 ("web-help" . python-ex-anything:web-help)))
      (persistent-action . ,python-ex-anything:help)))
