@@ -158,6 +158,31 @@
     (message "python-ex:debug-info-p is `%s`" val)
     (setq python-ex:debug-info-p val)))
 
+;;; async util
+(defvar python-ex:async-error-buffer " *python-ex async error*")
+(defmacro python-ex:with-async (args &rest actions)
+  (declare (indent 1))  
+  `(python-ex:with-async* 0.1 ,args ,@actions))
+
+(defmacro python-ex:with-async* (secs args &rest actions)
+  (declare (indent 2))
+  (python-ex:with-gensyms (err)
+    `(python-ex:with-lexical-bindings ,args
+       (run-with-idle-timer
+        ,secs nil
+        (lambda ()
+          (condition-case ,err
+              (progn ,@actions)
+            (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
+                     (insert (prin1-to-string ,err)))
+                   (display-buffer python-ex:async-error-buffer))))))))
+
+(defun python-ex:wait-for (dsecs finish-check &optional wait-call-back)
+  (cond ((funcall finish-check) (when wait-call-back (funcall wait-call-back)))
+        (t (python-ex:with-async* dsecs (dsecs finish-check wait-call-back)
+             (python-ex:debug-info "python-ex:wait-for -- in wait-for loop")
+             (python-ex:wait-for dsecs finish-check wait-call-back)))))
+
 ;;;; repl (interactive shell)
 (lexical-let ((installed nil))
   (defun python-ex:install () (interactive)
@@ -234,18 +259,10 @@
       (format "%s %s" python-ex:python-command file))
      (substring-no-properties it 0 -1))))
 
-(defmacro python-ex:with-preoutput-filters (filters &rest actions)
-  (declare (indent 1))
-  (python-ex:with-gensyms (orig)
-    `(let* ((,orig comint-preoutput-filter-functions)
-            (comint-preoutput-filter-functions ,filters))
-       (unwind-protect
-           (progn ,@actions)
-         (setq comint-preoutput-filter-functions ,orig)))))
-
-(defun python-ex:eval-internal (source-code)
+(defun python-ex:eval-internal (source-code &optional async call-back)
   (lexical-let* ((buf (list))
                  (done-p nil)
+                 (call-back call-back)
                  (output-interception
                   (lambda (str) 
                     (python-ex:debug-info  "world==== %S" str)
@@ -258,55 +275,50 @@
                     "")))
     (python-ex:eval-internal-1 
      :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
-     :filters (list output-interception))
-    (while (null done-p)
-      (python-ex:debug-info "python-ex:eval-internal --  outer-sleep")
-      (sleep-for 0 10))
-    (mapconcat 'identity buf "")))
+     :filters (list output-interception)
+     :async async
+     :call-back (lambda ()
+                  (while (null done-p)
+                    (python-ex:debug-info "python-ex:eval-internal --  outer-sleep")
+                    (sleep-for 0 10))
+                  (python-ex:let1 r (mapconcat 'identity buf "")
+                    (cond (call-back (funcall call-back r))
+                          (t r)))))))
 
 (defvar python-ex:eval-reading-p nil) ;;internal-variable for polling
-(defun* python-ex:eval-internal-1 (&key send-action filters call-back)
-  (let* ((end-check-filter
-          (lambda (str)
-            (python-ex:debug-info "===hello %S" str)
-            (when (string-match-p python-ex:prompt-rx str)
-              (setq python-ex:eval-reading-p nil))
-            str))
-         (filters* (cons end-check-filter filters)))
-    (python-ex:with-preoutput-filters filters*
+(defun* python-ex:eval-internal-1 (&key send-action filters call-back async)
+  (lexical-let ((end-checker (lambda (str)
+                               (python-ex:debug-info "===hello %S" str)
+                               (when (string-match-p python-ex:prompt-rx str)
+                                 (setq python-ex:eval-reading-p nil))
+                               str)))
+    (let* ((old-filters comint-preoutput-filter-functions)
+           (filters* (cons end-checker filters)))
+
       (setq python-ex:eval-reading-p t)
-      (funcall send-action)
-      (while python-ex:eval-reading-p ;;polling
-        (python-ex:debug-info "python-ex:eval-internal-1 -- inner-sleep")
-        (sleep-for 0 100))
-      (when call-back (funcall call-back)))))
 
-;;; eval ansync
-
-;; async utility
-(defvar python-ex:async-error-buffer " *python-ex async error*")
-(defmacro python-ex:with-async (args &rest actions)
-  (declare (indent 1))  
-  `(python-ex:with-async* 0.1 ,args ,@actions))
-
-(defmacro python-ex:with-async* (secs args &rest actions)
-  (declare (indent 2))
-  (python-ex:with-gensyms (err)
-    `(python-ex:with-lexical-bindings ,args
-       (run-with-idle-timer
-        ,secs nil
-        (lambda ()
-          (condition-case ,err
-              (progn ,@actions)
-            (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
-                     (insert (prin1-to-string ,err)))
-                   (display-buffer python-ex:async-error-buffer))))))))
-
-(defun python-ex:wait-for (dsecs finish-check &optional wait-call-back)
-  (cond ((funcall finish-check) (when wait-call-back (funcall wait-call-back)))
-        (t (python-ex:with-async* dsecs (dsecs finish-check wait-call-back)
-             (python-ex:debug-info "python-ex:wait-for -- in wait-for loop")
-             (python-ex:wait-for dsecs finish-check wait-call-back)))))
+      (cond (async
+             (setq comint-preoutput-filter-functions filters*)
+             (funcall send-action)
+             (python-ex:debug-info
+              "python-ex:preoutput-filers-cont -- *async* start")
+             (python-ex:with-lexical-bindings (call-back old-filters)
+               (lexical-let ((last-call-back
+                              (lambda () 
+                                (setq comint-preoutput-filter-functions old-filters)
+                                (funcall call-back))))
+                 (python-ex:wait-for 0.5
+                                     (lambda () (null python-ex:eval-reading-p))
+                                     last-call-back))))
+            (t
+             (unwind-protect
+                 (let ((comint-preoutput-filter-functions filters*)) ;;special variable
+                   (funcall send-action)
+                   (while python-ex:eval-reading-p ;;polling
+                     (python-ex:debug-info "python-ex:eval-internal-1 -- inner-sleep")
+                     (sleep-for 0 100)
+                     (when call-back (funcall call-back))))
+               (setq comint-preoutput-filter-functions old-filters)))))))
 
 ;; async main
 (defun python-ex:eval-async (code &optional call-back) (interactive "s\na")
@@ -333,41 +345,42 @@
                  (t (message "pyex-result: %s" r)))))))))
 
 (defun python-ex:eval-internal-async (source-code &optional call-back)
-  (python-ex:with-lexical-bindings (source-code)
-    (python-ex:eval-internal-async-1
-     :send-action (lambda () (comint-simple-send (python-ex:proc) source-code))
-     :call-back call-back)))
+  (python-ex:let1 call-back (or call-back (lambda (r) (message "pyex-result: %s" r)))
+    (python-ex:eval-internal source-code t call-back)))
 
-(defun* python-ex:eval-internal-async-1 (&key send-action call-back)
-  (lexical-let* ((prev-pt (with-current-buffer (python-ex:buffer)
-                            (marker-position comint-last-output-start))))
-    (funcall send-action)
-    (python-ex:with-lexical-bindings (call-back)
-      (lexical-let ((last-call-back
-                     (lambda ()
-                       (python-ex:let1 r
-                           (with-current-buffer (python-ex:buffer)
-                             (save-excursion
-                               (goto-char (marker-position comint-last-output-start))
-                               (buffer-substring-no-properties
-                                (point) 
-                                (next-single-char-property-change (point) 'field))))
-                         (if call-back (funcall call-back r) (message "pyex-result: %s" r))))))
-        (python-ex:wait-for
-         0.1 (lambda ()
-               (with-current-buffer (python-ex:buffer)
-                 (python-ex:debug-info
-                  "python-ex:eval-internal-async --- ps(%d,%d)"
-                  prev-pt (marker-position comint-last-output-start))
-                 (python-ex:debug-info
-                  "python-ex:eval-internal-async --- s:%s"
-                  (buffer-substring-no-properties
-                   (marker-position comint-last-output-start)
-                   (point-max)))
-                 (python-ex:let1 pt (marker-position comint-last-output-start)
-                   (and (< prev-pt pt)
-                        (not (string-equal "" (buffer-substring-no-properties pt (point-max))))))))
-         last-call-back)))))
+;; ;;
+;; ;;; *buggy* ultrasensitive for output from a [i]python shell
+;; ;;
+;; (defun* python-ex:eval-internal-async-1 (&key send-action call-back)
+;;   (lexical-let* ((prev-pt (with-current-buffer (python-ex:buffer)
+;;                             (marker-position comint-last-output-start))))
+;;     (funcall send-action)
+;;     (python-ex:with-lexical-bindings (call-back)
+;;       (lexical-let ((last-call-back
+;;                      (lambda ()
+;;                        (python-ex:let1 r
+;;                            (with-current-buffer (python-ex:buffer)
+;;                              (save-excursion
+;;                                (goto-char (marker-position comint-last-output-start))
+;;                                (buffer-substring-no-properties
+;;                                 (point) 
+;;                                 (next-single-char-property-change (point) 'field))))
+;;                          (if call-back (funcall call-back r) (message "pyex-result: %s" r))))))
+;;         (python-ex:wait-for
+;;          0.1 (lambda ()
+;;                (with-current-buffer (python-ex:buffer)
+;;                  (python-ex:debug-info
+;;                   "python-ex:eval-internal-async --- ps(%d,%d)"
+;;                   prev-pt (marker-position comint-last-output-start))
+;;                  (python-ex:debug-info
+;;                   "python-ex:eval-internal-async --- s:%s"
+;;                   (buffer-substring-no-properties
+;;                    (marker-position comint-last-output-start)
+;;                    (point-max)))
+;;                  (python-ex:let1 pt (marker-position comint-last-output-start)
+;;                    (and (< prev-pt pt)
+;;                         (not (string-equal "" (buffer-substring-no-properties pt (point-max))))))))
+;;          last-call-back)))))
 
 ;;; repl-action
 (defmacro python-ex:with-action-repl-buffer (&rest actions)
@@ -382,7 +395,7 @@
    (goto-char (point-max))))
 
 (defun python-ex:send-string (code &optional call-back)
-  (cond (python-ex:auto-scroll-p 
+  (cond ((or call-back python-ex:auto-scroll-p)
          (python-ex:eval-internal-async 
           code 
           (or call-back 'python-ex:auto-scroll-callback)))
@@ -390,7 +403,8 @@
 
 (defun python-ex:send-region (beg end &optional call-back) (interactive "r\nP")
   (cond (python-ex:auto-scroll-p
-         (python-ex:eval-internal-async-1
+         (python-ex:eval-internal-1
+          :async t
           :send-action :send-action (lambda () (comint-send-region (python-ex:proc) beg end))
           :call-back (or call-back 'python-ex:auto-scroll-callback)))
         (t (comint-send-region (python-ex:proc) beg end))))
@@ -540,7 +554,7 @@ help('%s')"
      (action . python-ex:send-string)))
 
  (defun python-ex:input-histories-with-anything () (interactive)
-     (anything '(python-ex:anything-c-source-input-histories)))
-)
+   (anything '(python-ex:anything-c-source-input-histories)))
+ )
 
 (provide 'python-ex)

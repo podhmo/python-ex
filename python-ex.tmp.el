@@ -7,8 +7,8 @@
 (python-ex:eval-external-async "print 10")
 (python-ex:eval-external-async "print 10" 'insert)
 (python-ex:eval-internal "print 10") ; => 10
-(python-ex:eval-internal "print '10\n10'") ; => 10
-;; 10
+(python-ex:eval-internal "print '10\\n10'")
+;; (python-ex:eval-internal "print 123\nprint 321\nprint 231") ;;;
 (python-ex:eval-internal-async "print 10")
 (python-ex:eval-internal-async "print 10" 'insert)
 (python-ex:eval "print [1]") ; => [1]
@@ -21,12 +21,12 @@
  "for i in range(10):
     print i,i,i" (lambda () (insert "foo")))
 
-(let ((python-ex:auto-scroll-p t))
-  (python-ex:send-string
-   "import time
-print 123
-time.sleep(2)
-print 321"))
+
+;; (python-send-string
+;;  "import time
+;; print 123
+;; time.sleep(2)
+;; print 321")
 
 
 (setq python-ex:debug-info-p t)
@@ -43,3 +43,9 @@ print 321"))
 ;;(string-match python-ex:prompt-rx (car xxxx))
 
 (cancel-timer timer)
+
+           
+    
+
+;;;;
+         
