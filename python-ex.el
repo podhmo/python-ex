@@ -285,8 +285,8 @@
 
 ;; async utility
 (defvar python-ex:async-error-buffer " *python-ex async error*")
-
 (defmacro python-ex:with-async (args &rest actions)
+  (declare (indent 1))  
   `(python-ex:with-async* 0.1 ,args ,@actions))
 
 (defmacro python-ex:with-async* (secs args &rest actions)

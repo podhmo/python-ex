@@ -42,3 +42,4 @@ print 321"))
 ;;(string-match "\\[0-9\\]" "9")
 ;;(string-match python-ex:prompt-rx (car xxxx))
 
+(cancel-timer timer)
