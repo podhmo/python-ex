@@ -265,10 +265,9 @@
                  (done-p nil)
                  (call-back call-back)
                  (code-or-send-action code-or-send-action)
-                 (send-action (cond ((functionp code-or-send-action)
-                                     code-or-send-action)
+                 (send-action (cond ((functionp code-or-send-action) code-or-send-action)
                                     (t (lambda ()
-                                         (comint-simple-send
+                                         (comint-simple-send 
                                           (python-ex:proc) code-or-send-action)))))
                  (output-interception
                   (lambda (str) 
@@ -350,9 +349,9 @@
            (cond (call-back (funcall call-back r))
                  (t (message "pyex-result: %s" r)))))))))
 
-(defun python-ex:eval-internal-async (source-code &optional call-back)
+(defun python-ex:eval-internal-async (code-or-send-action &optional call-back)
   (python-ex:let1 call-back (or call-back (lambda (r) (message "pyex-result: %s" r)))
-    (python-ex:eval-internal source-code t call-back)))
+    (python-ex:eval-internal code-or-send-action t call-back)))
 
 ;; ;;
 ;; ;;; *buggy* ultrasensitive for output from a [i]python shell
@@ -465,15 +464,20 @@ import ex"
             (setq python-ex:all-modules-cache-buffer buf))))))
 
 
-(defun* python-ex:message-with-other-buffer (proc &optional (name "*Py Help*") (reuse-buffer-p nil))
-  (python-ex:let1 buf
+(defun* python-ex:message-with-buffer (call-back &optional (name "*Pyex Help") (reuse-buffer-p nil))
+  (python-ex:rlet1 buf
       (cond (reuse-buffer-p (get-buffer-create name))
             (t (generate-new-buffer name)))
     (with-current-buffer buf
       (python-ex:let1 inhibit-read-only nil
         (when reuse-buffer-p
           (erase-buffer))
-        (funcall proc))
+        (funcall call-back)))))
+
+(defun* python-ex:message-with-other-buffer (call-back &optional (name "*Pyex Help") (reuse-buffer-p nil))
+  (python-ex:let1 buf
+      (python-ex:message-with-buffer call-back name reuse-buffer-p)
+    (with-current-buffer buf
       (goto-char (point-min)))
     (display-buffer buf)))
 
@@ -559,6 +563,35 @@ help('%s')"
 
  (defun python-ex:input-histories-with-anything () (interactive)
    (anything '(python-ex:anything-c-source-input-histories)))
+
+ ;;; ipython dynamic complete
+(defun python-ex:ipython-complete-with-anything () (interactive)
+  (python-ex:and-let*
+      ((end (point))
+       (strs (progn (skip-chars-backward "0-9a-zA-Z._")
+                    (delete-extract-rectangle (point) end)))
+       (content
+        (python-ex:eval-internal
+         (format "print('\\n'.join(__IP.complete(%S)))" strs)))
+       (buf
+        (with-lexical-bindings (content)
+          (python-ex:message-with-buffer
+           (lambda () (insert content))
+           " *Pyex:completes*" t)))
+       (source
+        `((name . ,(format "ipython complete: %S" strs))
+          (init . (lambda ()
+                    (anything-candidate-buffer ,buf)))
+          (candidates-in-buffer)
+          (search-from-end) ;; adhoc fix
+          (action . insert))))
+    (declare (special anything-execute-action-at-once-if-one))
+    (let ((anything-execute-action-at-once-if-one t)
+          (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
+                    (define-key kmp (kbd "<tab>") 'anything-next-line)
+                    (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
+      (or (anything :sources (list source) :input (car strs) :keymap keymap)
+          (insert (car strs))))))
  )
 
 (provide 'python-ex)

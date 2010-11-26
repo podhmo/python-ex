@@ -2,7 +2,6 @@
 (add-to-list 'load-path (concat default-directory "el-util-macro"))
 (require 'python-ex)
 
-
 (defun python-ex:setup ()
   (let ((key-map '(("\C-cu" . python-ex:select-modules-with-anything)
                   ("\C-cS" . python-ex:run-repl)
@@ -14,4 +13,14 @@
           do (define-key python-mode-map k fun))))
 
 (add-hook 'python-mode-hook 'python-ex:setup)
+
+(defun python-ex:inferior-setup ()
+  (define-key inferior-python-mode-map (kbd "<tab>")
+    'python-ex:ipython-complete-with-anything))
+
+(add-hook 'inferior-python-mode-hook
+          'python-ex:inferior-setup)
+
+;; personal setting
+(setq python-ex:base-dir (expand-file-name "~/myproject/python-ex/"))
           
