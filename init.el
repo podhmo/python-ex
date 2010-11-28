@@ -24,3 +24,9 @@
 ;; personal setting
 (setq python-ex:base-dir (expand-file-name "~/myproject/python-ex/"))
 
+
+;;;
+
+;; (python-ex:modules-cache-add-path 
+;;  (find-file-noselect python-ex:anything-daily-use-modules-file))
+

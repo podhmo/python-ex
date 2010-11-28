@@ -339,9 +339,9 @@
               "python-ex:preoutput-filers-cont -- *async* start")
              (python-ex:with-lexical-bindings (call-back old-filters)
                (lexical-let* ((last-call-back
-                              (lambda () 
-                                (setq comint-preoutput-filter-functions old-filters)
-                                (funcall call-back))))
+                               (lambda () 
+                                 (setq comint-preoutput-filter-functions old-filters)
+                                 (funcall call-back))))
                  (python-ex:wait-for 0.5
                                      (lambda () (null python-ex:eval-reading-p))
                                      last-call-back))))
@@ -513,117 +513,163 @@ help('%s')"
    (browse-url
     (format "%s/library/%s.html" python-online-document-url c)))
 
- (defvar python-ex:anything-c-source-all-modules
-   '((name . "import")
-     (init . (lambda ()
-               (anything-candidate-buffer 
-                (python-ex:all-modules-cache-buffer nil t))))
-     (candidates-in-buffer)
-     (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
-                ("help" . python-ex-anything:help)
-                ("web-help" . python-ex-anything:web-help)))
-     (persistent-action . ,python-ex-anything:help)))
+ (defun python-ex-anything:find-module-other-frame (_)
+   (let* ((c (anything-get-selection nil t))
+          (file (cadr (split-string c " +:"))))
+     (find-file-other-frame file)))
 
- (defvar python-ex:anything-daily-use-modules-file 
-   (concat python-ex:base-dir "daily-modules.py"))
+ (lexical-let (sys-path)
+   (defun python-ex:sys-path (&optional force-reload-p)
+     (when force-reload-p (setq sys-path nil))
+     (or sys-path
+         (python-ex:let1 str (python-ex:eval-internal "print ','.join(sys.path)")
+           (setq sys-path (cdr (split-string str ",")))))))
 
- (defvar python-ex:anything-c-source-daily-use-modules
-   '((name . "daily modules")
-     (candidates-file . python-ex:anything-daily-use-modules-file)
-     (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
-                ("help" . python-ex-anything:help)
-                ("web-help" . python-ex-anything:web-help)))
-     (persistent-action . ,python-ex-anything:help)))
+ (defun python-ex:module->path (module &optional force-reload-p)
+   (python-ex:let1 path (replace-regexp-in-string "\\." "/" module)
+     (loop for dir in (python-ex:sys-path force-reload-p)
+           for d = (concat dir "/" path)
+           if (file-exists-p d)
+           return d
+           else
+           for file = (concat d ".py")
+           when (file-exists-p file)
+           return file)))
 
- (defun python-ex:select-modules-with-anything () (interactive)
-   (let ((sources
-          '(python-ex:anything-c-source-daily-use-modules
-            python-ex:anything-c-source-all-modules))
-         (keymap
-          (python-ex:rlet1 kmp (copy-keymap anything-map)
-            (define-key kmp "\C-c\C-u" (lambda () (interactive) 
-                                     (message "recollect modules ...")
-                                     (python-ex:all-modules-cache-buffer t t))))))
-     (anything :prompt "module(C-c C-u recollect modules) " 
-               :sources sources :buffer " *python import*" :keymap keymap)))
+ (defun python-ex:modules-cache-add-path (&optional buffer force-rewrite-p)
+   (let* ((buffer (or buffer (python-ex:all-modules-cache-buffer)))
+          (messaage "%s: add path (for find-module) ..." buffer))
+     (with-current-buffer buffer
+       (save-excursion 
+         (goto-char (point-min))
+         (when (or force-rewrite-p
+                   (null (save-excursion (re-search-forward ":" nil t 1))))
+           (while (re-search-forward "^.+" nil t 1)
+             (python-ex:and-let*
+                 ((module (match-string-no-properties 0))
+                  (new-text (python-ex:module->path module)))
+               (delete-region (point-at-bol) (point-at-eol))
+               (insert (format "%-35s:%s" module new-text))))))))
 
- (defvar python-ex:anything-c-source-input-histories
-   '((name . "input history")
-     (init 
-      . (lambda ()
-          (python-ex:let1 histories-array
-              (with-current-buffer (python-ex:buffer)
-                (delete-duplicates (cddr comint-input-ring)
-                                   :test 'string-equal))
-            (with-current-buffer (anything-candidate-buffer 'global)
-              (erase-buffer)
-              (dotimes (i (length histories-array))
-                (python-ex:aand
-                 (aref histories-array i)
-                 (insert it "\n")))))))
-     (candidates-in-buffer)
-     (search-from-end)
-     (action . python-ex:send-string)))
+   (defvar python-ex:anything-c-source-all-modules
+     '((name . "import")
+       (init . (lambda ()
+                 (python-ex:with-async nil
+                   (python-ex:modules-cache-add-path))
+                 (anything-candidate-buffer 
+                  (python-ex:all-modules-cache-buffer nil t))))
+       (candidates-in-buffer)
+       (display-to-real . (lambda (c) (car (split-string c " +:"))))
+       (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
+                  ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
+                  ("help" . python-ex-anything:help)
+                  ("web-help" . python-ex-anything:web-help)))
+       (persistent-action . python-ex-anything:help)))
 
- 
- (defun python-ex:input-histories-with-anything () (interactive)
-   (anything '(python-ex:anything-c-source-input-histories)))
+   (defvar python-ex:anything-daily-use-modules-file 
+     (concat python-ex:base-dir "daily-modules.py"))
+
+   (defvar python-ex:anything-c-source-daily-use-modules
+     '((name . "daily modules")
+       (candidates-file . python-ex:anything-daily-use-modules-file)
+       (display-to-real . (lambda (c) (car (split-string c " +:"))))
+       (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
+                  ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
+                  ("help" . python-ex-anything:help)
+                  ("web-help" . python-ex-anything:web-help)))
+       (persistent-action . python-ex-anything:help)))
+
+   (defun python-ex:select-modules-with-anything () (interactive)
+     (let ((sources
+            '(python-ex:anything-c-source-daily-use-modules
+              python-ex:anything-c-source-all-modules))
+           (keymap
+            (python-ex:rlet1 kmp (copy-keymap anything-map)
+              (define-key kmp "\C-c\C-u" (lambda () (interactive) 
+                                           (message "recollect modules ...")
+                                           (python-ex:all-modules-cache-buffer t t)
+                                           (python-ex:with-async nil
+                                             (python-ex:modules-cache-add-path)))))))
+       (anything :prompt "module(C-c C-u recollect modules) " 
+                 :sources sources :buffer " *python import*" :keymap keymap)))
+
+   (defvar python-ex:anything-c-source-input-histories
+     '((name . "input history")
+       (init 
+        . (lambda ()
+            (python-ex:let1 histories-array
+                (with-current-buffer (python-ex:buffer)
+                  (delete-duplicates (cddr comint-input-ring)
+                                     :test 'string-equal))
+              (with-current-buffer (anything-candidate-buffer 'global)
+                (erase-buffer)
+                (dotimes (i (length histories-array))
+                  (python-ex:aand
+                   (aref histories-array i)
+                   (insert it "\n")))))))
+       (candidates-in-buffer)
+       (search-from-end)
+       (action . python-ex:send-string)))
+
+   
+   (defun python-ex:input-histories-with-anything () (interactive)
+     (anything '(python-ex:anything-c-source-input-histories)))
 
 
- (defun* python-ex:anything-candidate-buffer-from-string 
-     (string &optional (bufname " *pyex:candidate") (reuse-buffer-p t))
-   (anything-candidate-buffer
-    (python-ex:message-with-buffer
-     (lambda () (insert (python-ex:eval-internal string)))
-     bufname reuse-buffer-p)))
+   (defun* python-ex:anything-candidate-buffer-from-string 
+       (string &optional (bufname " *pyex:candidate") (reuse-buffer-p t))
+     (anything-candidate-buffer
+      (python-ex:message-with-buffer
+       (lambda () (insert (python-ex:eval-internal string)))
+       bufname reuse-buffer-p)))
 
- (defvar python-ex:anything-c-source-input-magick-commands
-   '((name . "%magick comment")
-     (init . (lambda ()
-               (python-ex:let1 buf (python-ex:anything-candidate-buffer-from-string
-                                    "%quickref" " *pyexc:quickref")
-                 (with-current-buffer buf
-                   (goto-char (point-min))
-                   (when (re-search-forward "The following magic functions are currently available:" nil t)
-                     (delete-region (point-min) (1+ (point))))
-                   (while (re-search-forward ":\n" nil t 1)
-                     (replace-match ":"))))))
-     (candidates-in-buffer)
-     (action . python-ex:send-string)))
+   (defvar python-ex:anything-c-source-input-magick-commands
+     '((name . "%magick comment")
+       (init . (lambda ()
+                 (python-ex:let1 buf (python-ex:anything-candidate-buffer-from-string
+                                      "%quickref" " *pyexc:quickref")
+                   (with-current-buffer buf
+                     (goto-char (point-min))
+                     (when (re-search-forward "The following magic functions are currently available:" nil t)
+                       (delete-region (point-min) (1+ (point))))
+                     (while (re-search-forward ":\n" nil t 1)
+                       (replace-match ":"))))))
+       (candidates-in-buffer)
+       (action . python-ex:send-string)))
 
- (defun python-ex:input-magick-commands-with-anything () (interactive)
-   (anything (list python-ex:anything-c-source-magick-commands)))
- 
+   (defun python-ex:input-magick-commands-with-anything () (interactive)
+     (anything (list python-ex:anything-c-source-magick-commands)))
+   
  ;;; ipython dynamic complete
 
- (defun python-ex:ipython-complete-with-anything () (interactive)
-   (python-ex:and-let*
-       ((end (point))
-        (str (progn (skip-chars-backward "0-9a-zA-Z._%$")
-                    (car (delete-extract-rectangle (point) end))))
-        (command
-         (format "print('\\n'.join(__IP.complete(%S)))" str))
-        (source
-         `((name . ,(format "ipython complete: %S" str))
-           (init . (lambda ()
-                     (python-ex:anything-candidate-buffer-from-string
-                      ,command " *Pyex:completes*")))
-           (candidates-in-buffer)
-           (search-from-end) ;; adhoc fix
-           (action . insert))))
-     (declare (special anything-execute-action-at-once-if-one))
-     (lexical-let ((need-replace-p nil))
-       (let ((anything-execute-action-at-once-if-one t)
-             (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
-                       (define-key kmp (kbd "<tab>") 'anything-next-line)
-                       (define-key kmp (kbd "\C-g") (lambda () (interactive)
-                                                      (setq need-replace-p t)
-                                                      (abort-recursive-edit)))
-                       (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
-         (anything :sources (list source) :input str :keymap keymap)
-         (when need-replace-p
-           (insert str))))))
- )
-;; (save-excursion (goto-char (point-min)) (loop while (re-search-forward "(defvar.*c-source" nil t) collect (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
+   (defun python-ex:ipython-complete-with-anything () (interactive)
+     (python-ex:and-let*
+         ((end (point))
+          (str (progn (skip-chars-backward "0-9a-zA-Z._%$")
+                      (car (delete-extract-rectangle (point) end))))
+          (command
+           (format "print('\\n'.join(__IP.complete(%S)))" str))
+          (source
+           `((name . ,(format "ipython complete: %S" str))
+             (init . (lambda ()
+                       (python-ex:anything-candidate-buffer-from-string
+                        ,command " *Pyex:completes*")))
+             (candidates-in-buffer)
+             (search-from-end) ;; adhoc fix
+             (action . insert))))
+       (declare (special anything-execute-action-at-once-if-one))
+       (lexical-let ((need-replace-p nil))
+         (let ((anything-execute-action-at-once-if-one t)
+               (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
+                         (define-key kmp (kbd "<tab>") 'anything-next-line)
+                         (define-key kmp (kbd "\C-g") (lambda () (interactive)
+                                                        (setq need-replace-p t)
+                                                        (abort-recursive-edit)))
+                         (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
+           (anything :sources (list source) :input str :keymap keymap)
+           (when need-replace-p
+             (insert str))))))
+   )
+ ;; (save-excursion (goto-char (point-min)) (loop while (re-search-forward "(defvar.*c-source" nil t) collect (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
 
-(provide 'python-ex)
+ (provide 'python-ex)
