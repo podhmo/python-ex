@@ -1,5 +1,56 @@
-(require 'cl)
-(require 'anything nil t)
+;;; python-ex.el --- selfish plugin for writing python (fully depends on ipython)
+
+;; Copyright (C) 2010  podhmo
+
+;; Author:  podhmo <ababjam61@gmail.com>
+;; Keywords: programing, python, convenience
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;;; Usage:
+
+;; In your emacs config,
+;; (require 'python-ex)
+
+;; (defun python-ex:setup ()
+;;   (let ((key-map '(("\C-cu" . python-ex:select-modules-with-anything)
+;;                   ("\C-cS" . python-ex:run-repl)
+;;                   ("\C-c\C-k" . python-ex:kill-repl)
+;;                   ("\C-c\C-l" . python-ex:load-file)
+;;                   ("\C-c\C-r" . python-ex:send-region)
+;;                   ("\C-c\C-b" . python-ex:send-buffer))))
+;;     (loop for (k . fun) in key-map
+;;           do (define-key python-mode-map k fun))))
+
+;; (add-hook 'python-mode-hook 'python-ex:setup)
+
+;; (defun python-ex:inferior-setup ()
+;;   (define-key inferior-python-mode-map (kbd "<tab>")
+;;     'python-ex:ipython-complete-with-anything))
+
+;; (add-hook 'inferior-python-mode-hook
+;;           'python-ex:inferior-setup)
+
+;; ;; personal setting
+;; (setq python-ex:base-dir (expand-file-name "~/myproject/python-ex/"))
+
+;;;; code ;;;;
+
+(eval-when-compile (require 'cl))
+(or (require 'anything nil t) (message "anything is good plugin for everyone."))
 (require 'python)
 (defmacro python-ex:with-anything (&rest actions)
   `(when (fboundp 'anything)
