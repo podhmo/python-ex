@@ -3,10 +3,12 @@
 (require 'python-ex)
 
 (defun python-ex:setup ()
-  (let ((key-map '(("\C-cu" . python-ex:select-modules-with-anything)
+  (let ((key-map `(("\C-cu" . python-ex:select-modules-with-anything)
                   ("\C-cS" . python-ex:run-repl)
                   ("\C-c\C-k" . python-ex:kill-repl)
                   ("\C-c\C-l" . python-ex:load-file)
+                  ("\C-c\C-j" . python-ex:ipython-complete-with-anything)
+                  ("\C-c\C-c" . ,(if (fboundp 'sp-toggle-file) 'sp-toggle-file))
                   ("\C-c\C-r" . python-ex:send-region)
                   ("\C-cr" . python-ex:input-histories-with-anything)
                   ("\C-c\C-b" . python-ex:send-buffer))))
@@ -17,6 +19,7 @@
 
 (defun python-ex:inferior-setup ()
   (let ((key-map `((,(kbd "<tab>") . python-ex:ipython-complete-with-anything)
+                   ("\C-c\C-j" . python-ex:ipython-complete-with-anything)
                    ("\C-cr" . python-ex:input-histories-with-anything)
                    ("\C-cu" . python-ex:select-modules-with-anything))))
     (loop for (k . fun) in key-map

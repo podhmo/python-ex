@@ -597,8 +597,11 @@ help('%s')"
    (defun python-ex:sys-path (&optional force-reload-p)
      (when force-reload-p (setq sys-path nil))
      (or sys-path
-         (python-ex:let1 str (python-ex:eval-internal "print ','.join(sys.path)")
-           (setq sys-path (cdr (split-string str ",")))))))
+         (let* ((cmd "
+D=[d for d in sys.path if not \"bin\" in d]
+print ','.join(D)")
+                (sys-paths-str (python-ex:eval-internal cmd)))
+           (setq sys-path (cdr (split-string sys-paths-str ",")))))))
 
  (defun python-ex:module->path (module &optional force-reload-p)
    (python-ex:let1 path (replace-regexp-in-string "\\." "/" module)
@@ -732,8 +735,9 @@ help('%s')"
    (defun python-ex:ipython-complete-with-anything () (interactive)
      (python-ex:and-let*
          ((end (point))
-          (str (progn (skip-chars-backward "0-9a-zA-Z._%$")
-                      (car (delete-extract-rectangle (point) end))))
+          (str (save-excursion
+                 (skip-chars-backward "0-9a-zA-Z._%$")
+                 (buffer-substring-no-properties (point) end)))
           (command
            (format "print('\\n'.join(__IP.complete(%S)))" str))
           (source
@@ -743,19 +747,15 @@ help('%s')"
                         ,command " *Pyex:completes*")))
              (candidates-in-buffer)
              (search-from-end) ;; adhoc fix
-             (action . insert))))
-       (declare (special anything-execute-action-at-once-if-one))
-       (lexical-let ((need-replace-p nil))
-         (let ((anything-execute-action-at-once-if-one t)
+             (action . (lambda (c)
+                         (delete-backward-char ,(length str))
+                         (insert c))))))
+          (declare (special anything-execute-action-at-once-if-one))
+            (let ((anything-execute-action-at-once-if-one t)
                (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
                          (define-key kmp (kbd "<tab>") 'anything-next-line)
-                         (define-key kmp (kbd "\C-g") (lambda () (interactive)
-                                                        (setq need-replace-p t)
-                                                        (abort-recursive-edit)))
                          (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
-           (anything :sources (list source) :input str :keymap keymap)
-           (when need-replace-p
-             (insert str))))))
+           (anything :sources (list source) :keymap keymap))))
    )
  ;; (save-excursion (goto-char (point-min)) (loop while (re-search-forward "(defvar.*c-source" nil t) collect (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
 
