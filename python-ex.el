@@ -423,8 +423,8 @@
        (start-process-shell-command 
         "python-ex:external" tmpbuf python-ex:python-command file)
        (lambda (status &rest args)
-         (python-ex:let1 r (with-current-buffer
-                               tmpbuf (buffer-string))
+         (python-ex:let1 r (with-current-buffer tmpbuf
+                             (buffer-string))
            (kill-buffer tmpbuf)
            (cond (call-back (funcall call-back r))
                  (t (message "pyex-result: %s" r)))))))))
@@ -493,6 +493,7 @@ import ex"
                                 python-ex:base-dir)))
     (concat prepare-string "\n" (apply 'format fmt args))))
 
+  
 (defun python-ex:all-modules-cache-buffer (&optional force-reloadp asyncp showp)
   (when force-reloadp
     (setq python-ex:all-modules-cache-buffer nil))
@@ -634,7 +635,7 @@ help('%s')"
                   (python-ex:all-modules-cache-buffer nil t))))
        (candidates-in-buffer)
        (display-to-real . (lambda (c) (car (split-string c " +:"))))
-       (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
+       (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
                   ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
                   ("help" . python-ex-anything:help)
                   ("web-help" . python-ex-anything:web-help)))
@@ -647,7 +648,7 @@ help('%s')"
      '((name . "daily modules")
        (candidates-file . python-ex:anything-daily-use-modules-file)
        (display-to-real . (lambda (c) (car (split-string c " +:"))))
-       (action . (("insert" . (lambda (c) (insert (format "import %s\n" c))))
+       (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
                   ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
                   ("help" . python-ex-anything:help)
                   ("web-help" . python-ex-anything:web-help)))
@@ -667,28 +668,39 @@ help('%s')"
        (anything :prompt "module(C-c C-u recollect modules) " 
                  :sources sources :buffer " *python import*" :keymap keymap)))
 
-   (defvar python-ex:anything-c-source-input-histories
+   (defvar python-ex:anything-c-source-input-histories 
      '((name . "input history")
-       (init 
-        . (lambda ()
-            (python-ex:let1 histories-array
-                (with-current-buffer (python-ex:buffer)
-                  (delete-duplicates (cddr comint-input-ring)
-                                     :test 'string-equal))
-              (with-current-buffer (anything-candidate-buffer 'global)
-                (erase-buffer)
-                (dotimes (i (length histories-array))
-                  (python-ex:aand
-                   (aref histories-array i)
-                   (insert it "\n")))))))
-       (candidates-in-buffer)
-       (search-from-end)
-       (action . python-ex:send-string)))
+       (candidates
+        . (lambda () (split-string (python-ex:eval-internal "%history") "\n")))
+       (display-to-real (lambda (c) (cadr (split-string ": " c))))
+       (action . (("send-string" . 
+                 (lambda (c)
+                   (message "send -- %S --" c)
+                   (python-ex:send-string c)))
+                ("kill-new" . kill-new))))
+     "select sentence from all inputed histories ")
 
+   ;; (defvar python-ex:anything-c-source-input-histories
+   ;;   '((name . "input history")
+   ;;     (init 
+   ;;      . (lambda ()
+   ;;          (python-ex:let1 histories-array
+   ;;              (with-current-buffer (python-ex:buffer)
+   ;;                (delete-duplicates (cddr comint-input-ring)
+   ;;                                   :test 'string-equal))
+   ;;            (with-current-buffer (anything-candidate-buffer 'global)
+   ;;              (erase-buffer)
+   ;;              (dotimes (i (length histories-array))
+   ;;                (python-ex:aand
+   ;;                 (aref histories-array i)
+   ;;                 (insert it "\n")))))))
+   ;;     (candidates-in-buffer)
+   ;;     (search-from-end)
+   ;;     (action . python-ex:send-string))
+   ;; "select sentence from directly inputed histories")
    
    (defun python-ex:input-histories-with-anything () (interactive)
      (anything '(python-ex:anything-c-source-input-histories)))
-
 
    (defun* python-ex:anything-candidate-buffer-from-string 
        (string &optional (bufname " *pyex:candidate") (reuse-buffer-p t))
@@ -708,11 +720,12 @@ help('%s')"
                        (delete-region (point-min) (1+ (point))))
                      (while (re-search-forward ":\n" nil t 1)
                        (replace-match ":"))))))
+       (display-to-real . (lambda (c) (car (split-string c ":"))))
        (candidates-in-buffer)
        (action . python-ex:send-string)))
 
    (defun python-ex:input-magick-commands-with-anything () (interactive)
-     (anything (list python-ex:anything-c-source-magick-commands)))
+     (anything '(python-ex:anything-c-source-input-magick-commands)))
    
  ;;; ipython dynamic complete
 
