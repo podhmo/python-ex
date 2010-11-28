@@ -378,43 +378,12 @@
            (cond (call-back (funcall call-back r))
                  (t (message "pyex-result: %s" r)))))))))
 
-(defun python-ex:eval-internal-async (code-or-send-action &optional call-back)
-  (python-ex:let1 call-back (or call-back (lambda (r) (message "pyex-result: %s" r)))
-    (python-ex:eval-internal code-or-send-action t call-back)))
-
 ;; ;;
 ;; ;;; *buggy* ultrasensitive for output from a [i]python shell
 ;; ;;
-;; (defun* python-ex:eval-internal-async-1 (&key send-action call-back)
-;;   (lexical-let* ((prev-pt (with-current-buffer (python-ex:buffer)
-;;                             (marker-position comint-last-output-start))))
-;;     (funcall send-action)
-;;     (python-ex:with-lexical-bindings (call-back)
-;;       (lexical-let ((last-call-back
-;;                      (lambda ()
-;;                        (python-ex:let1 r
-;;                            (with-current-buffer (python-ex:buffer)
-;;                              (save-excursion
-;;                                (goto-char (marker-position comint-last-output-start))
-;;                                (buffer-substring-no-properties
-;;                                 (point) 
-;;                                 (next-single-char-property-change (point) 'field))))
-;;                          (if call-back (funcall call-back r) (message "pyex-result: %s" r))))))
-;;         (python-ex:wait-for
-;;          0.1 (lambda ()
-;;                (with-current-buffer (python-ex:buffer)
-;;                  (python-ex:debug-info
-;;                   "python-ex:eval-internal-async --- ps(%d,%d)"
-;;                   prev-pt (marker-position comint-last-output-start))
-;;                  (python-ex:debug-info
-;;                   "python-ex:eval-internal-async --- s:%s"
-;;                   (buffer-substring-no-properties
-;;                    (marker-position comint-last-output-start)
-;;                    (point-max)))
-;;                  (python-ex:let1 pt (marker-position comint-last-output-start)
-;;                    (and (< prev-pt pt)
-;;                         (not (string-equal "" (buffer-substring-no-properties pt (point-max))))))))
-;;          last-call-back)))))
+(defun python-ex:eval-internal-async (code-or-send-action &optional call-back)
+  (python-ex:let1 call-back (or call-back (lambda (r) (message "pyex-result: %s" r)))
+    (python-ex:eval-internal code-or-send-action t call-back)))
 
 ;;; repl-action
 (defmacro python-ex:with-action-repl-buffer (&rest actions)
@@ -567,10 +536,16 @@ help('%s')"
      (persistent-action . ,python-ex-anything:help)))
 
  (defun python-ex:select-modules-with-anything () (interactive)
-   (python-ex:let1 sources
-       '(python-ex:anything-c-source-daily-use-modules
-         python-ex:anything-c-source-all-modules)
-     (anything-other-buffer sources " *python import*")))
+   (let ((sources
+          '(python-ex:anything-c-source-daily-use-modules
+            python-ex:anything-c-source-all-modules))
+         (keymap
+          (python-ex:rlet1 kmp (copy-keymap anything-map)
+            (define-key kmp "\C-c\C-u" (lambda () (interactive) 
+                                     (message "recollect modules ...")
+                                     (python-ex:all-modules-cache-buffer t t))))))
+     (anything :prompt "module(C-c C-u recollect modules) " 
+               :sources sources :buffer " *python import*" :keymap keymap)))
 
  (defvar python-ex:anything-c-source-input-histories
    '((name . "input history")
