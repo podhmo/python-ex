@@ -547,18 +547,41 @@ for k, e in vars().items():
      "*pyex:loaded-modules*" t)))
 
 
+;;; url-button
+(put 'python-ex:link-button 'face 'link)
+(put 'python-ex:link-button 'mouse-face 'highlight)
+(put 'python-ex:link-button 'keymap button-map)
+(put 'python-ex:link-button 'type 'button)
+(put 'python-ex:link-button 'help-echo "mouse-2, RET: Push this button")
+(put 'python-ex:link-button 'evaporate t)
+(put 'python-ex:link-button 'rear-nonsticky t)
+(put 'button 'button-category-symbol 'python-ex:link-button)
+
+(defun python-ex:clickable-url ()
+  (let ((buffer-read-only nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "\\(f\\|ht\\)tps?://[^)>\s)\n]+" nil t 1)
+        (set-text-properties (match-beginning 0)
+                             (match-end 0)
+                             (lexical-let ((url (match-string-no-properties 0)))
+                               `(follow-link t  
+                                             action ,(lambda (b) (browse-url url))
+                                             category python-ex:link-button
+                                             button (t))))))))
+
 ;;; anything interface
 (python-ex:with-anything
-
  (defun python-ex-anything:help (c)
    (python-ex:message-with-other-buffer
     (lambda ()
       (insert
-       (python-ex:eval-internal
+       (python-ex:eval-external
         (format "
 import %s
 help('%s')" 
-                c c))))))
+                c c)))
+     (python-ex:clickable-url))))
  
  (defun python-ex-anything:web-help (c)
    (browse-url
@@ -588,19 +611,19 @@ help('%s')"
            return file)))
 
  (defun python-ex:modules-cache-add-path (&optional buffer force-rewrite-p)
-   (let* ((buffer (or buffer (python-ex:all-modules-cache-buffer)))
-          (messaage "%s: add path (for find-module) ..." buffer))
+   (let ((buffer (or buffer (python-ex:all-modules-cache-buffer))))
      (with-current-buffer buffer
        (save-excursion 
          (goto-char (point-min))
          (when (or force-rewrite-p
                    (null (save-excursion (re-search-forward ":" nil t 1))))
+           (message "%s: add path (for find-module) ..." buffer)
            (while (re-search-forward "^.+" nil t 1)
              (python-ex:and-let*
                  ((module (match-string-no-properties 0))
                   (new-text (python-ex:module->path module)))
                (delete-region (point-at-bol) (point-at-eol))
-               (insert (format "%-35s:%s" module new-text))))))))
+               (insert (format "%-35s:%s" module new-text)))))))))
 
    (defvar python-ex:anything-c-source-all-modules
      '((name . "import")
