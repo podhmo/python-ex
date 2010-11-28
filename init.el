@@ -23,4 +23,4 @@
 
 ;; personal setting
 (setq python-ex:base-dir (expand-file-name "~/myproject/python-ex/"))
-          
+

@@ -163,26 +163,51 @@
 (defvar python-ex:async-error-buffer " *python-ex async error*")
 (defmacro python-ex:with-async (args &rest actions)
   (declare (indent 1))  
-  `(python-ex:with-async* 0.1 ,args ,@actions))
+  `(python-ex:with-async* 0.1 ,args :action (progn ,@actions)))
 
-(defmacro python-ex:with-async* (secs args &rest actions)
+(defmacro* python-ex:with-async* (secs args &key repeat-p action)
   (declare (indent 2))
   (python-ex:with-gensyms (err)
     `(python-ex:with-lexical-bindings ,args
        (run-with-idle-timer
-        ,secs nil
+        ,secs ,repeat-p
         (lambda ()
           (condition-case ,err
-              (progn ,@actions)
+              ,action
             (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
-                     (insert (prin1-to-string ,err)))
+                     (insert (format "%s\n" ,err)))
                    (display-buffer python-ex:async-error-buffer))))))))
 
-(defun python-ex:wait-for (dsecs finish-check &optional wait-call-back)
-  (cond ((funcall finish-check) (when wait-call-back (funcall wait-call-back)))
-        (t (python-ex:with-async* dsecs (dsecs finish-check wait-call-back)
-             (python-ex:debug-info "python-ex:wait-for -- in wait-for loop")
-             (python-ex:wait-for dsecs finish-check wait-call-back)))))
+(defvar python-ex:async-timers-alist nil)
+
+(defun python-ex:cancel-async-timer (name-or-timer)
+  (python-ex:let1 timer (cond ((timerp name-or-timer) name-or-timer)
+                              ((t (assoc-default name python-ex:async-timers-alist))))
+    (cancel-timer timer)
+    (setq python-ex:async-timers-alist
+          (remassoc name python-ex:async-timers-alist))))
+
+(defun python-ex:cancel-all-async-timers () (interactive)
+  (loop for (_ . timer) in python-ex:async-timers-alist
+        do (progn (message "remove %s timer" timer)
+                  (cancel-timer timer)))
+  (setq python-ex:async-timers-alist nil))
+
+(defun python-ex:wait-for (dsecs finish-check &optional call-back)
+  (lexical-let* ((name (gensym))
+                 (timer (python-ex:with-async*
+                            dsecs
+                            (dsecs finish-check call-back)
+                          :repeat-p t
+                          :action (progn
+                                    (python-ex:debug-info 
+                                     "python-ex:wait-for -- in wait-for loop")
+                                    (when (funcall finish-check)
+                                      (when (and call-back (functionp call-back))
+                                        (funcall call-back))
+                                      (python-ex:cancel-async-timer name))))))
+    (push (cons name timer) python-ex:async-timers-alist)))
+
 
 ;;;; repl (interactive shell)
 (lexical-let ((installed nil))
@@ -195,7 +220,7 @@
 
 (defun python-ex:command-list (cmd &rest rest)
   (cond ((string-match-p "ipython" cmd) 
-         `(,cmd ,@rest))
+         `(,cmd "-nobanner" ,@rest))
         ;; `(,cmd "-cl" "-noreadline" "-nobanner" ,@rest))
         (t (list cmd))))
 
@@ -309,7 +334,7 @@
              (python-ex:debug-info
               "python-ex:preoutput-filers-cont -- *async* start")
              (python-ex:with-lexical-bindings (call-back old-filters)
-               (lexical-let ((last-call-back
+               (lexical-let* ((last-call-back
                               (lambda () 
                                 (setq comint-preoutput-filter-functions old-filters)
                                 (funcall call-back))))
@@ -561,42 +586,65 @@ help('%s')"
      (search-from-end)
      (action . python-ex:send-string)))
 
+ 
  (defun python-ex:input-histories-with-anything () (interactive)
    (anything '(python-ex:anything-c-source-input-histories)))
 
+
+ (defun* python-ex:anything-candidate-buffer-from-string 
+     (string &optional (bufname " *pyex:candidate") (reuse-buffer-p t))
+   (anything-candidate-buffer
+    (python-ex:message-with-buffer
+     (lambda () (insert (python-ex:eval-internal string)))
+     bufname reuse-buffer-p)))
+
+ (defvar python-ex:anything-c-source-input-magick-commands
+   '((name . "%magick comment")
+     (init . (lambda ()
+               (python-ex:let1 buf (python-ex:anything-candidate-buffer-from-string
+                                    "%quickref" " *pyexc:quickref")
+                 (with-current-buffer buf
+                   (goto-char (point-min))
+                   (when (re-search-forward "The following magic functions are currently available:" nil t)
+                     (delete-region (point-min) (1+ (point))))
+                   (while (re-search-forward ":\n" nil t 1)
+                     (replace-match ":"))))))
+     (candidates-in-buffer)
+     (action . python-ex:send-string)))
+
+ (defun python-ex:input-magick-commands-with-anything () (interactive)
+   (anything (list python-ex:anything-c-source-magick-commands)))
+ 
  ;;; ipython dynamic complete
-(defun python-ex:ipython-complete-with-anything () (interactive)
-  (python-ex:and-let*
-      ((end (point))
-       (strs (progn (skip-chars-backward "0-9a-zA-Z._")
-                    (delete-extract-rectangle (point) end)))
-       (content
-        (python-ex:eval-internal
-         (format "print('\\n'.join(__IP.complete(%S)))" strs)))
-       (buf
-        (with-lexical-bindings (content)
-          (python-ex:message-with-buffer
-           (lambda () (insert content))
-           " *Pyex:completes*" t)))
-       (source
-        `((name . ,(format "ipython complete: %S" strs))
-          (init . (lambda ()
-                    (anything-candidate-buffer ,buf)))
-          (candidates-in-buffer)
-          (search-from-end) ;; adhoc fix
-          (action . insert))))
-    (declare (special anything-execute-action-at-once-if-one))
-    (lexical-let ((need-replace-p nil))
-      (let ((anything-execute-action-at-once-if-one t)
-            (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
-                      (define-key kmp (kbd "<tab>") 'anything-next-line)
-                      (define-key kmp (kbd "\C-g") (lambda () (interactive)
-                                                     (setq need-replace-p t)
-                                                     (abort-recursive-edit)))
-                      (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
-        (anything :sources (list source) :input (car strs) :keymap keymap)
-        (when need-replace-p
-          (insert (car strs)))))))
-)
+
+ (defun python-ex:ipython-complete-with-anything () (interactive)
+   (python-ex:and-let*
+       ((end (point))
+        (str (progn (skip-chars-backward "0-9a-zA-Z._%$")
+                    (car (delete-extract-rectangle (point) end))))
+        (command
+         (format "print('\\n'.join(__IP.complete(%S)))" str))
+        (source
+         `((name . ,(format "ipython complete: %S" str))
+           (init . (lambda ()
+                     (python-ex:anything-candidate-buffer-from-string
+                      ,command " *Pyex:completes*")))
+           (candidates-in-buffer)
+           (search-from-end) ;; adhoc fix
+           (action . insert))))
+     (declare (special anything-execute-action-at-once-if-one))
+     (lexical-let ((need-replace-p nil))
+       (let ((anything-execute-action-at-once-if-one t)
+             (keymap (python-ex:rlet1 kmp (copy-keymap anything-map)
+                       (define-key kmp (kbd "<tab>") 'anything-next-line)
+                       (define-key kmp (kbd "\C-g") (lambda () (interactive)
+                                                      (setq need-replace-p t)
+                                                      (abort-recursive-edit)))
+                       (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
+         (anything :sources (list source) :input str :keymap keymap)
+         (when need-replace-p
+           (insert str))))))
+ )
+;; (save-excursion (goto-char (point-min)) (loop while (re-search-forward "(defvar.*c-source" nil t) collect (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
 
 (provide 'python-ex)
