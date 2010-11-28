@@ -12,7 +12,7 @@
 (python-ex:eval-internal-async "print 10")
 (python-ex:cancel-all-async-timers)
 (python-ex:eval-internal-async "print 10" 'insert)
-(python-ex:eval "print [1]") ; => [1]10
+(python-ex:eval "print [1]") ; => [1]1010
 (python-ex:run-repl t)
 (python-ex:run-repl)
 (python-ex:kill-repl)
@@ -21,7 +21,7 @@
 
 (python-ex:eval-internal-async
  "for i in range(10):10
-    print i,i,i" (lambda (r) (insert r)))
+    print i,i,i" (lambda (r) (insert r)))10
 
 
 (python-ex:eval-internal-async

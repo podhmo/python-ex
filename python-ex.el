@@ -151,7 +151,7 @@
                 (,str (mapconcat 'identity (split-string ,str "\n") "\n  ")))
            (message (concat "[info]\n  " ,str))))))
 
-(defun python-ex:debug-info-enable (k) (interactive "p")
+(defun python-ex:debug-info-enable (k) (interactive "P")
   (python-ex:let1 val (case k
                         ((1) t)
                         ((-1) nil)
@@ -174,18 +174,20 @@
         (lambda ()
           (condition-case ,err
               ,action
-            (error (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
-                     (insert (format "%s\n" ,err)))
-                   (display-buffer python-ex:async-error-buffer))))))))
+            (error
+             (with-current-buffer (get-buffer-create python-ex:async-error-buffer)
+               (insert (format "%s\n" ,err))
+               (insert "---KILL ALL TIMERS---\n")
+               (python-ex:cancel-all-async-timers))
+             (display-buffer python-ex:async-error-buffer))))))))
 
 (defvar python-ex:async-timers-alist nil)
 
-(defun python-ex:cancel-async-timer (name-or-timer)
-  (python-ex:let1 timer (cond ((timerp name-or-timer) name-or-timer)
-                              ((t (assoc-default name python-ex:async-timers-alist))))
+(defun python-ex:cancel-async-timer (timer-name)
+  (python-ex:let1 timer (assoc-default timer-name python-ex:async-timers-alist)
     (cancel-timer timer)
     (setq python-ex:async-timers-alist
-          (remassoc name python-ex:async-timers-alist))))
+          (remassoc timer-name python-ex:async-timers-alist))))
 
 (defun python-ex:cancel-all-async-timers () (interactive)
   (loop for (_ . timer) in python-ex:async-timers-alist
@@ -200,12 +202,14 @@
                             (dsecs finish-check call-back)
                           :repeat-p t
                           :action (progn
-                                    (python-ex:debug-info 
-                                     "python-ex:wait-for -- in wait-for loop")
+                                    (python-ex:debug-info
+                                     "python-ex:wait-for -- in wait-for loop [checker %s]"
+                                     finish-check)
                                     (when (funcall finish-check)
                                       (when (and call-back (functionp call-back))
                                         (funcall call-back))
-                                      (python-ex:cancel-async-timer name))))))
+                                      (python-ex:cancel-async-timer name))
+                                    (python-ex:debug-info "python-ex:wait-for after cancel-timer")))))
     (push (cons name timer) python-ex:async-timers-alist)))
 
 
