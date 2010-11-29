@@ -775,8 +775,10 @@ print ','.join(D)")
        (action . (("pydoc" . (lambda (c) (python-ex-anything:pydoc-external c)))))
        (persistent-action . python-ex-anything-pydoc-external)))
 
-   (defun python-ex:pydoc-with-anything ()
-     (anything '(python-ex:anything-c-source-pydoc)))
+   (defun python-ex:pydoc-with-anything () (interactive)
+     (let* ((word (word-at-point))
+            (word (if (string-equal "\n" word) "" word)))
+       (anything '(python-ex:anything-c-source-pydoc) word)))
 
    
  ;;; ipython dynamic complete
@@ -806,6 +808,14 @@ print ','.join(D)")
                          (define-key kmp (kbd "<tab>") 'anything-next-line)
                          (define-key kmp (kbd "<backtab>") 'anything-previous-line))))
            (anything :sources (list source) :keymap keymap))))
+
+(when (require 'anything-show-completion nil t)
+  (dolist (f '(python-ex:ipython-complete-with-anything
+               python-ex:select-modules-with-anything
+               python-ex:input-histories-with-anything
+               python-ex:pydoc-with-anything
+               python-ex:input-magick-commands-with-anything))
+    (use-anything-show-completion f '(length anything-complete-target))))
    )
  ;; (save-excursion (goto-char (point-min)) (loop while (re-search-forward "(defvar.*c-source" nil t) collect (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
 

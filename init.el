@@ -5,6 +5,7 @@
 (defun python-ex:setup ()
   (let ((key-map `(("\C-cu" . python-ex:select-modules-with-anything)
                    ("\C-cS" . python-ex:run-repl)
+                   ([f1] . python-ex:pydoc-with-anything)
                    ("\C-c\C-k" . python-ex:kill-repl)
                    ("\C-c\C-l" . python-ex:load-file)
                    ("\C-c\C-j" . python-ex:ipython-complete-with-anything)
