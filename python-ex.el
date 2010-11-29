@@ -177,6 +177,7 @@
 (put 'python-ex:aif 'lisp-indent-function 2)
 
 ;;;; setting
+(defvar python-ex:auto-send-import-module-p t)
 (defvar python-online-document-url "http://docs.python.org")
 (defvar python-ex:eval-type 'external) ;; 'external or 'internal
 (defvar python-ex:python-command python-command)
@@ -191,7 +192,7 @@
              python-ex:buffer)))
 
 (defvar python-ex:repl-command "ipython")
-(defvar python-ex:auto-scroll-p nil)
+(defvar python-ex:auto-scroll-p nil) ;;obsolete?
 
 ;;; debug
 (defvar python-ex:debug-info-p nil)
@@ -629,20 +630,27 @@ print ','.join(D)")
                (delete-region (point-at-bol) (point-at-eol))
                (insert (format "%-35s:%s" module new-text)))))))))
 
-   (defvar python-ex:anything-c-source-all-modules
-     '((name . "import")
-       (init . (lambda ()
-                 (python-ex:with-async nil
-                   (python-ex:modules-cache-add-path))
-                 (anything-candidate-buffer 
-                  (python-ex:all-modules-cache-buffer nil t))))
-       (candidates-in-buffer)
-       (display-to-real . (lambda (c) (car (split-string c " +:"))))
-       (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
-                  ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
-                  ("help" . python-ex-anything:help)
-                  ("web-help" . python-ex-anything:web-help)))
-       (persistent-action . python-ex-anything:help)))
+
+ (defun python-ex-anything:insert-import-module (c)
+   (python-ex:let1 cmd (format "import %s" c)
+     (when python-ex:auto-send-import-module-p
+       (python-ex:send-string cmd)
+       (insert cmd))))
+
+ (defvar python-ex:anything-c-source-all-modules
+   '((name . "import")
+     (init . (lambda ()
+               (python-ex:with-async nil
+                 (python-ex:modules-cache-add-path))
+               (anything-candidate-buffer 
+                (python-ex:all-modules-cache-buffer nil t))))
+     (candidates-in-buffer)
+     (display-to-real . (lambda (c) (car (split-string c " +:"))))
+     (action . (("insert" . python-ex-anything:insert-import-module)
+                ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
+                ("help" . python-ex-anything:help)
+                ("web-help" . python-ex-anything:web-help)))
+     (persistent-action . python-ex-anything:help)))
 
    (defvar python-ex:anything-daily-use-modules-file 
      (concat python-ex:base-dir "daily-modules.py"))
@@ -651,7 +659,7 @@ print ','.join(D)")
      '((name . "daily modules")
        (candidates-file . python-ex:anything-daily-use-modules-file)
        (display-to-real . (lambda (c) (car (split-string c " +:"))))
-       (action . (("insert" . (lambda (c) (insert (format "import %s" c))))
+       (action . (("insert" . python-ex-anything:insert-import-module)
                   ("find-module-other-frame" . python-ex-anything:find-module-other-frame)
                   ("help" . python-ex-anything:help)
                   ("web-help" . python-ex-anything:web-help)))
@@ -746,6 +754,7 @@ print ','.join(D)")
                        (python-ex:anything-candidate-buffer-from-string
                         ,command " *Pyex:completes*")))
              (candidates-in-buffer)
+             (candidate-number-limit . 100000)
              (search-from-end) ;; adhoc fix
              (action . (lambda (c)
                          (delete-backward-char ,(length str))

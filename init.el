@@ -12,6 +12,8 @@
                   ("\C-c\C-r" . python-ex:send-region)
                   ("\C-cr" . python-ex:input-histories-with-anything)
                   ("\C-c\C-b" . python-ex:send-buffer))))
+
+    (python-ex:install)
     (loop for (k . fun) in key-map
           do (define-key python-mode-map k fun))))
 
