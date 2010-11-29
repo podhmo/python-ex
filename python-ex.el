@@ -414,22 +414,33 @@
     (otherwise (python-ex:let1 fmt "python-ex:eval -- invalid eval-type %s"
                  (error (format fmt python-ex:eval-type))))))
 
-(defun python-ex:eval-external-async (source-code &optional call-back)
-  (let ((tmpbuf (python-ex:gensym-name))
-        (file (python-ex:gensym-name)))
-    (with-temp-file file 
-      (insert source-code))
-    (python-ex:with-lexical-bindings (call-back tmpbuf)
-      (set-process-sentinel
-       (start-process-shell-command 
-        "python-ex:external" tmpbuf python-ex:python-command file)
-       (lambda (status &rest args)
-         (python-ex:let1 r (with-current-buffer tmpbuf
-                             (buffer-string))
-           (kill-buffer tmpbuf)
-           (cond (call-back (funcall call-back r))
-                 (t (message "pyex-result: %s" r)))))))))
+(defun python-ex:eval-file-async-1 (tmpbuf file args &optional call-back*)
+  (python-ex:with-lexical-bindings (call-back* tmpbuf)
+    (set-process-sentinel
+     (apply 'start-process-shell-command 
+            "python-ex:external" tmpbuf python-ex:python-command file args)
+     (lambda (status &rest args)
+       (cond (call-back* (funcall call-back*))
+             (t (display-buffer tmpbuf)))))))
 
+(defun python-ex:eval-file-async (file &optional args call-back) (interactive "ffile:\nsargs:")
+  (python-ex:let1 tmpbuf (format "*%s output*" file)
+    (python-ex:eval-file-async-1 tmpbuf file args call-back)))
+
+(defun python-ex:eval-external-async (source-code &optional call-back)
+    (python-ex:let1 file (python-ex:gensym-name)
+      (with-temp-file file
+        (insert source-code))
+      (lexical-let ((tmpbuf (python-ex:gensym-name)))
+        (python-ex:with-lexical-bindings (call-back)
+          (python-ex:eval-file-async-1
+           tmpbuf file nil
+           (lambda ()
+             (python-ex:let1 r (with-current-buffer tmpbuf
+                                 (buffer-string))
+               (kill-buffer tmpbuf)
+               (cond (call-back (funcall call-back r))
+                     (t (message "pyex-result: %s" r))))))))))
 ;; ;;
 ;; ;;; *buggy* ultrasensitive for output from a [i]python shell
 ;; ;;

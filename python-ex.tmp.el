@@ -8,6 +8,7 @@
 (python-ex:eval-external-async "print 10" 'insert)
 (python-ex:eval-internal "print 10") ; => 10
 (python-ex:eval-internal "print '1010\\n10'")
+(python-ex:eval-file-async "hello.py")
 ;; (python-ex:eval-internal "print 123\nprint 321\nprint 231") ;;;
 (python-ex:eval-internal-async "print 10")
 (python-ex:cancel-all-async-timers)
