@@ -4,14 +4,15 @@
 
 (defun python-ex:setup ()
   (let ((key-map `(("\C-cu" . python-ex:select-modules-with-anything)
-                  ("\C-cS" . python-ex:run-repl)
-                  ("\C-c\C-k" . python-ex:kill-repl)
-                  ("\C-c\C-l" . python-ex:load-file)
-                  ("\C-c\C-j" . python-ex:ipython-complete-with-anything)
-                  ("\C-c\C-c" . ,(if (fboundp 'sp-toggle-file) 'sp-toggle-file))
-                  ("\C-c\C-r" . python-ex:send-region)
-                  ("\C-cr" . python-ex:input-histories-with-anything)
-                  ("\C-c\C-b" . python-ex:send-buffer))))
+                   ("\C-cS" . python-ex:run-repl)
+                   ("\C-c\C-k" . python-ex:kill-repl)
+                   ("\C-c\C-l" . python-ex:load-file)
+                   ("\C-c\C-j" . python-ex:ipython-complete-with-anything)
+                   ("\C-c\C-c" . ,(if (fboundp 'sp-toggle-file) 'sp-toggle-file))
+                   ("\C-c\C-r" . python-ex:send-region)
+                   ("\C-c\C-@" . python-ex:eval-file-async)
+                   ("\C-cr" . python-ex:input-histories-with-anything)
+                   ("\C-c\C-b" . python-ex:send-buffer))))
 
     (python-ex:install)
     (loop for (k . fun) in key-map
@@ -45,10 +46,10 @@
       (python-ex:with-lexical-bindings (name call-back)
         (python-ex:eval-external-async 
          code
-       (lambda (r) (with-current-buffer name
-                     (erase-buffer)
-                     (insert r)
-                     (when call-back (funcall call-back)))))))))
+         (lambda (r) (with-current-buffer name
+                       (erase-buffer)
+                       (insert r)
+                       (when call-back (funcall call-back)))))))))
 
 ;; (defun python-ex:help-with-anything (&optional force-reload)
 ;;   (flet ((with-pydoc-help
@@ -78,3 +79,5 @@
 ;;            (sources (loop for buf in bufs
 ;;                           collect (buffer-to-anything-source buf))))
 ;;       (anything sources))))
+
+

@@ -539,9 +539,9 @@ import ex"
 (defun* python-ex:message-with-other-buffer (call-back &optional (name "*Pyex Help") (reuse-buffer-p nil))
   (python-ex:let1 buf
       (python-ex:message-with-buffer call-back name reuse-buffer-p)
-    (with-current-buffer buf
-      (goto-char (point-min)))
-    (display-buffer buf)))
+    ;; (with-current-buffer buf
+    ;;   (goto-char (point-min)))
+    (set-window-start (display-buffer buf) 1)))
 
 (defun python-ex:loaded-modules () (interactive) 
   ;;async-internal is not support, so using sync version
@@ -748,6 +748,36 @@ print ','.join(D)")
 
    (defun python-ex:input-magick-commands-with-anything () (interactive)
      (anything '(python-ex:anything-c-source-input-magick-commands)))
+
+ ;;; pydoc interface
+
+   (defun python-ex-anything:pydoc-external (keyword)
+     (python-ex:with-lexical-bindings (keyword)
+       (lexical-let ((bufname "*pydoc*"))
+         (python-ex:message-with-buffer
+          (lambda () 
+            (python-ex:with-lexical-bindings (bufname)
+              (set-process-sentinel
+               (start-process-shell-command
+                "pydoc-keyword" bufname "pydoc" keyword)
+               (lambda (&rest _)
+                 (set-window-start (display-buffer bufname) 1)))))
+          bufname t))))
+
+   (defvar python-ex:anything-c-source-pydoc
+     '((name . "pydoc")
+       (display-to-real . (lambda (c)
+                            (car (split-string c " -"))))
+       (candidates . (lambda ()
+                       (start-process-shell-command 
+                        "pydoc" nil
+                        "pydoc" "-k" anything-input)))
+       (action . (("pydoc" . (lambda (c) (python-ex-anything:pydoc-external c)))))
+       (persistent-action . python-ex-anything-pydoc-external)))
+
+   (defun python-ex:pydoc-with-anything ()
+     (anything '(python-ex:anything-c-source-pydoc)))
+
    
  ;;; ipython dynamic complete
 
