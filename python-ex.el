@@ -425,10 +425,14 @@
 
 (defun python-ex:eval-file-async (file &optional args call-back) (interactive "ffile:\nP")
   (python-ex:let1 tmpbuf (format "*%s output*" file)
-    ;; (with-current-buffer tmpbuf
-    ;;   (erase-buffer))
+    (with-current-buffer tmpbuf
+      (erase-buffer))
     (python-ex:eval-file-async-1 tmpbuf file args call-back)))
 
+(defun python-ex:eval-file/compile () (interactive)
+  (python-ex:and-let* ((file (buffer-file-name)))
+    (compile (format "%s %s" python-ex:python-command file))))
+ 
 (defun python-ex:eval-external-async (source-code &optional call-back)
     (python-ex:let1 file (python-ex:gensym-name)
       (with-temp-file file

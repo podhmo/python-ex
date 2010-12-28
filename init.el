@@ -17,6 +17,7 @@
                    ("\C-c\C-c" . ,(if (fboundp 'sp-toggle-file) 'sp-toggle-file))
                    ("\C-c\C-r" . python-ex:send-region)
                    ("\C-c\C-@" . python-ex:eval-file-async)
+                   ("\C-c@" . python-ex:eval-file/compile)
                    ("\C-cr" . python-ex:input-histories-with-anything)
                    ("\C-c\C-b" . python-ex:send-buffer))))
 
