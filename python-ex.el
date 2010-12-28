@@ -184,7 +184,7 @@
 (defvar python-ex:temoprary-directory "/tmp/")
 (defvar python-ex:buffer-name "*Python-ex*")
 (defvar python-ex:buffer nil)
-(defvar python-ex:base-dir default-directory)
+(defvar python-ex:base-dir (if load-in-progress (file-name-directory load-file-name) default-directory))
 (defvar python-ex:prompt-rx "\n+\\[0;32mIn \\[\\[1;32m[0-9]+\\[0;32m\\]: \\[0m") ;; ">>> " classic
 (defun python-ex:buffer ()
   (or python-ex:buffer
@@ -423,8 +423,10 @@
        (cond (call-back* (funcall call-back*))
              (t (display-buffer tmpbuf)))))))
 
-(defun python-ex:eval-file-async (file &optional args call-back) (interactive "ffile:\nsargs:")
+(defun python-ex:eval-file-async (file &optional args call-back) (interactive "ffile:\nP")
   (python-ex:let1 tmpbuf (format "*%s output*" file)
+    ;; (with-current-buffer tmpbuf
+    ;;   (erase-buffer))
     (python-ex:eval-file-async-1 tmpbuf file args call-back)))
 
 (defun python-ex:eval-external-async (source-code &optional call-back)
@@ -663,7 +665,7 @@ print ','.join(D)")
                 ("web-help" . python-ex-anything:web-help)))
      (persistent-action . python-ex-anything:help)))
 
-   (defvar python-ex:anything-daily-use-modules-file 
+   (setq python-ex:anything-daily-use-modules-file 
      (concat python-ex:base-dir "daily-modules.py"))
 
    (defvar python-ex:anything-c-source-daily-use-modules
@@ -675,6 +677,8 @@ print ','.join(D)")
                   ("help" . python-ex-anything:help)
                   ("web-help" . python-ex-anything:web-help)))
        (persistent-action . python-ex-anything:help)))
+   ;;(anything (list python-ex:anything-c-source-daily-use-modules))
+
 
    (defun python-ex:select-modules-with-anything () (interactive)
      (let ((sources
@@ -684,9 +688,9 @@ print ','.join(D)")
             (python-ex:rlet1 kmp (copy-keymap anything-map)
               (define-key kmp "\C-c\C-u" (lambda () (interactive) 
                                            (message "recollect modules ...")
-                                           (python-ex:all-modules-cache-buffer t t)
+                                           (python-ex:all-modules-cache-buffer t )
                                            (python-ex:with-async nil
-                                             (python-ex:modules-cache-add-path)))))))
+                                             (python-ex:modules-cache-add-path nil t)))))))
        (anything :prompt "module(C-c C-u recollect modules) " 
                  :sources sources :buffer " *python import*" :keymap keymap)))
 

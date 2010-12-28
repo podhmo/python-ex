@@ -1,5 +1,10 @@
-(add-to-list 'load-path default-directory)
-(add-to-list 'load-path (concat default-directory "el-util-macro"))
+(defun current-directory ()
+  (cond (load-in-progress (file-name-directory load-file-name))
+        (t default-directory)))
+
+(add-to-list 'load-path (current-directory))
+(add-to-list 'load-path (concat (current-directory) "el-util-macro"))
+
 (require 'python-ex)
 
 (defun python-ex:setup ()
@@ -42,15 +47,15 @@
 
 (defun python-ex:eval-external-output/buffer (code name &optional force-reload call-back)
   (python-ex:rlet1 buf (get-buffer name)
-    (when (or force-reload (null buf))
-      (setq buf (get-buffer-create name))
-      (python-ex:with-lexical-bindings (name call-back)
-        (python-ex:eval-external-async 
-         code
-         (lambda (r) (with-current-buffer name
-                       (erase-buffer)
-                       (insert r)
-                       (when call-back (funcall call-back)))))))))
+                   (when (or force-reload (null buf))
+                     (setq buf (get-buffer-create name))
+                     (python-ex:with-lexical-bindings (name call-back)
+                                                      (python-ex:eval-external-async 
+                                                       code
+                                                       (lambda (r) (with-current-buffer name
+                                                                     (erase-buffer)
+                                                                     (insert r)
+                                                                     (when call-back (funcall call-back)))))))))
 
 ;; (defun python-ex:help-with-anything (&optional force-reload)
 ;;   (flet ((with-pydoc-help
@@ -81,4 +86,30 @@
 ;;                           collect (buffer-to-anything-source buf))))
 ;;       (anything sources))))
 
+;;;
+(when (require 'insert-pair-element nil t)  
+  (setq python-selfish:mapping
+        `(("`" . ,(ilambda (insert "_")))
+          ("_" . ,(ilambda (insert "`")))
+          ("\\" . insert-pair-escaped-after)
+          ("," . ,(ilambda (insert ", ")))))
+  
+  (setq python-selfish:key-pair
+        '(("(" . ")")
+          ("\"" . "\"")
+          ("'" . "'")
+          ("{"  "}" "{")
+          ("[" "]" "[")))
 
+  (defun python-selfish:install ()
+    (loop for (k . f) in python-selfish:mapping
+          do (define-key python-mode-map k f))
+    (loop for (l . r) in python-selfish:key-pair
+          if (atom r)
+          do (define-key python-mode-map l (insert-pair-make l r))
+          else
+          do (destructuring-bind (r key) r
+               (define-key python-mode-map key (insert-pair-make l r key)))))
+
+  (add-hook 'python-mode-hook 'python-selfish:install)
+  )
