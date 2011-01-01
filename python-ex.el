@@ -174,7 +174,7 @@
   (test-form then-form &rest else-forms)
   "Anaphoric if. Temporary variable `it' is the result of test-form."
   (\` (let ((it (\, test-form))) (if it (\, then-form) (\,@ else-forms)))))
-(put 'python-ex:aif 'lisp-indent-function 2)
+(put 'python-ex:aif 'lisp-indent-function 3)
 
 ;;;; setting
 (defvar python-ex:auto-send-import-module-p t)
@@ -482,7 +482,9 @@
         (t (comint-send-region (python-ex:proc) beg end))))
 
 (defun python-ex:send-buffer () (interactive)
-  (python-ex:send-region (point-min) (point-max)))
+  (python-ex:aif (buffer-file-name)
+      (python-ex:send-string (format "execfile(%S)" it))
+      (python-ex:send-region (point-min) (point-max))))
 
 (defun python-ex:send-defun ()  (interactive)
   (save-excursion
@@ -490,15 +492,16 @@
      (progn (beginning-of-defun) (point))
      (progn (end-of-defun) (point)))))
 
-(defun python-ex:load-file (file) (interactive "ffile:")
-  (let ((module (replace-regexp-in-string "\\..+$" "" (file-name-nondirectory file)))
-        (dir (python-ex:aif (file-name-directory file) it default-directory)))
-    (python-ex:debug-info 
-     "python-ex:load-file --- %s"
-     (format "%s = ex.load(%S,%S)" module module dir))
-    (python-ex:send-string 
-     (format "%s = ex.load(%S,%S)" module module dir))
-    (message "python-ex: --- %s is loaded." file)))
+(defvar python-ex:load-with-module-p nil)
+(defun python-ex:load-file (&optional file) (interactive "P")
+  (python-ex:let1 file (or file (buffer-file-name))
+    (message "python-ex:load-file %S" file)
+    (if python-ex:load-with-module-p
+        (let ((module (replace-regexp-in-string "\\..+$" "" (file-name-nondirectory file)))
+              (dir (python-ex:aif (file-name-directory file) it default-directory)))
+          (python-ex:send-string
+           (format "%s = ex.load(%S,%S)" module module dir)))
+        (python-ex:send-buffer))))
 
 ;;;; import
 (defvar python-ex:all-modules-cache-buffer nil)
