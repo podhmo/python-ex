@@ -429,9 +429,19 @@
       (erase-buffer))
     (python-ex:eval-file-async-1 tmpbuf file args call-back)))
 
+
 (defun python-ex:eval-file/compile () (interactive)
-  (python-ex:and-let* ((file (buffer-file-name)))
-    (compile (format "%s %s" python-ex:python-command file))))
+  (or
+   ;; virtualenv's python
+   (python-ex:and-let* ((workon-path (getenv "WORKON_HOME"))
+                        ((string-match (format "%s/\\([^/]+\\)" (expand-file-name workon-path)) default-directory))
+                        (env (match-string 1 default-directory))
+                        (file (buffer-file-name))
+                        (rcfile (format "~/.%src" (file-name-nondirectory (getenv "SHELL")))))
+     (compile (format "(source %s && workon %s && python %s)" rcfile env file)))
+   ;; default python
+   (python-ex:and-let* ((file (buffer-file-name)))
+     (compile (format "%s %s" python-ex:python-command file)))))
  
 (defun python-ex:eval-external-async (source-code &optional call-back)
     (python-ex:let1 file (python-ex:gensym-name)
